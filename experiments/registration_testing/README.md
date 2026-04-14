@@ -19,4 +19,5 @@ Run the test script
 ```bash
 OFFSET=0 LIMIT=64 VERSION=v1 N_THREADS=1 bash run.sh
 OFFSET=0 LIMIT=64 VERSION=v2 N_THREADS=8 bash run.sh
+OFFSET=0 LIMIT=64 VERSION=v3 N_THREADS=8 bash run.sh
 ```

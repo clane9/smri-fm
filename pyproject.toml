@@ -29,6 +29,9 @@ dependencies = [
     "wandb",
 ]
 
+[project.scripts]
+rigid_registration = "smri_fm.preprocess:rigid_registration_cli"
+
 [project.optional-dependencies]
 
 [tool.setuptools_scm]

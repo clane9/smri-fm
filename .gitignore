@@ -24,6 +24,8 @@ _version.py
 
 # Local data directories
 **/data
+**/logs
+output
 
 # Local scratch/tmp
 .scratch
