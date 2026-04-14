@@ -9,6 +9,24 @@ import SimpleITK as sitk
 import templateflow.api as tflow
 
 
+def to_iso(img: sitk.Image, resolution: float = 1.0) -> sitk.Image:
+    size = img.GetSize()
+    spacing = img.GetSpacing()
+    if all(s == resolution for s in spacing):
+        return img
+    new_spacing = 3 * (resolution,)
+    new_size = [int(round(size[ii] * spacing[ii] / resolution)) for ii in range(3)]
+    resample = sitk.ResampleImageFilter()
+    resample.SetOutputSpacing(new_spacing)
+    resample.SetSize(new_size)
+    resample.SetOutputOrigin(img.GetOrigin())
+    resample.SetOutputDirection(img.GetDirection())
+    resample.SetInterpolator(sitk.sitkLinear)
+    resample.SetDefaultPixelValue(0.0)
+    resample.SetOutputPixelType(sitk.sitkFloat32)
+    return resample.Execute(img)
+
+
 def rigid_registration(
     moving_img: sitk.Image,
     fixed_img: sitk.Image,
@@ -24,17 +42,19 @@ def rigid_registration(
     winsorize: bool = False,
     winsorize_range: tuple[float, float] = (0.5, 99.5),
     fixed_mask: sitk.Image | None = None,
+    moving_to_iso: bool = False,
 ):
+    temp_img = moving_img
+    if moving_to_iso:
+        temp_img = to_iso(temp_img)
     if winsorize:
-        arr = sitk.GetArrayFromImage(moving_img)
+        arr = sitk.GetArrayFromImage(temp_img)
         lo, hi = np.percentile(arr[arr > 0], list(winsorize_range))
-        moving_img_clip = sitk.Clamp(moving_img, moving_img.GetPixelIDValue(), float(lo), float(hi))
-    else:
-        moving_img_clip = moving_img
+        temp_img = sitk.Clamp(temp_img, temp_img.GetPixelIDValue(), float(lo), float(hi))
 
     transform = sitk.CenteredTransformInitializer(
         fixed_img,
-        moving_img_clip,
+        temp_img,
         sitk.Euler3DTransform(),
         sitk.CenteredTransformInitializerFilter.GEOMETRY,
     )
@@ -69,10 +89,10 @@ def rigid_registration(
     registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
     registration_method.SetInitialTransform(transform)
 
-    final_transform = registration_method.Execute(fixed_img, moving_img_clip)
+    final_transform = registration_method.Execute(fixed_img, temp_img)
 
     result_img = sitk.Resample(
-        moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, fixed_img.GetPixelID()
+        moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, moving_img.GetPixelID()
     )
 
     info = {
@@ -99,6 +119,33 @@ VERSIONS = {
         winsorize=True,
     ),
     "v4": rigid_registration,  # also uses fixed brain mask
+    "v5": partial(rigid_registration, sampling_percentage=0.1),
+    "v6": partial(
+        rigid_registration,
+        n_histogram_bins=32,
+        sampling_percentage=0.25,
+        shrink_factors=[8, 4, 2, 1],
+        smoothing_sigmas=[3, 2, 1, 0],
+    ),
+    "v7": partial(rigid_registration, sampling_percentage=0.1, moving_to_iso=True),
+    "v8": partial(
+        rigid_registration,
+        sampling_percentage=0.25,
+        optimizer="gradient_descent_line_search",
+        max_iterations=1000,
+        shrink_factors=(4,),
+        smoothing_sigmas=(2,),
+        moving_to_iso=True,
+    ),
+    "v9": partial(
+        rigid_registration,
+        sampling_percentage=0.25,
+        optimizer="gradient_descent_line_search",
+        max_iterations=1000,
+        shrink_factors=(4,),
+        smoothing_sigmas=(2,),
+        moving_to_iso=True,
+    ),  # same as v8 but with head mask
 }
 
 
@@ -118,11 +165,13 @@ def rigid_registration_cli():
     moving_img = sitk.ReadImage(args.input, sitk.sitkFloat32)
     fixed_img = sitk.ReadImage(str(template_path), sitk.sitkFloat32)
 
-    if args.version in {"v4"}:
+    if args.version == "v4":
         mask_path = tflow.get(
             "MNI152NLin6Asym", desc="brain", resolution=1, suffix="mask", extension="nii.gz"
         )
         fixed_mask = sitk.ReadImage(str(mask_path), sitk.sitkUInt8)
+    elif args.version == "v9":
+        fixed_mask = sitk.Cast(fixed_img > 600, sitk.sitkUInt8)
     else:
         fixed_mask = None
 

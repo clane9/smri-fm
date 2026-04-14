@@ -24,6 +24,9 @@ fi
 for input in "${images[@]}"; do
     fname="$(basename "$input")"
     output="$OUTPUT_DIR/${fname}"
+    if [[ -f $output ]]; then
+        continue
+    fi
     rigid_registration \
         --version "$VERSION" \
         --n-threads "$N_THREADS" \
