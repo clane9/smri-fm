@@ -1,14 +1,34 @@
 import argparse
 import json
 import time
+from functools import partial
+from typing import Literal
 
 import numpy as np
 import SimpleITK as sitk
 import templateflow.api as tflow
 
 
-def rigid_registration_v1(moving_img: sitk.Image, fixed_img: sitk.Image):
-    # Initialize transform
+def rigid_registration(
+    moving_img: sitk.Image,
+    fixed_img: sitk.Image,
+    *,
+    n_histogram_bins: int = 50,
+    sampling_strategy: Literal["random", "regular"] = "random",
+    sampling_percentage: float = 0.01,
+    optimizer: Literal["gradient_descent", "gradient_descent_line_search"] = "gradient_descent",
+    learning_rate: float = 1.0,
+    max_iterations: int = 100,
+    shrink_factors: list[int] = (4, 2, 1),
+    smoothing_sigmas: list[int] = (2, 1, 0),
+    winsorize: bool = False,
+    winsorize_range: tuple[float, float] = (0.5, 99.5),
+):
+    if winsorize:
+        arr = sitk.GetArrayFromImage(moving_img)
+        lo, hi = np.percentile(arr[arr > 0], list(winsorize_range))
+        moving_img = sitk.Clamp(moving_img, moving_img.GetPixelIDValue(), float(lo), float(hi))
+
     transform = sitk.CenteredTransformInitializer(
         fixed_img,
         moving_img,
@@ -16,129 +36,63 @@ def rigid_registration_v1(moving_img: sitk.Image, fixed_img: sitk.Image):
         sitk.CenteredTransformInitializerFilter.GEOMETRY,
     )
 
-    # Set up registration method
     registration_method = sitk.ImageRegistrationMethod()
-    registration_method.SetMetricAsMattesMutualInformation(numberOfHistogramBins=50)
-    registration_method.SetMetricSamplingStrategy(registration_method.RANDOM)
-    registration_method.SetMetricSamplingPercentage(0.01)
+    registration_method.SetMetricAsMattesMutualInformation(numberOfHistogramBins=n_histogram_bins)
+    registration_method.SetMetricSamplingStrategy(
+        registration_method.REGULAR
+        if sampling_strategy == "regular"
+        else registration_method.RANDOM
+    )
+    registration_method.SetMetricSamplingPercentage(sampling_percentage)
     registration_method.SetInterpolator(sitk.sitkLinear)
-    registration_method.SetOptimizerAsGradientDescent(
-        learningRate=1.0,
-        numberOfIterations=100,
+
+    optimizer_kwargs = dict(
+        learningRate=learning_rate,
+        numberOfIterations=max_iterations,
         convergenceMinimumValue=1e-6,
         convergenceWindowSize=10,
     )
+    if optimizer == "gradient_descent_line_search":
+        registration_method.SetOptimizerAsGradientDescentLineSearch(**optimizer_kwargs)
+    else:
+        registration_method.SetOptimizerAsGradientDescent(**optimizer_kwargs)
+
     registration_method.SetOptimizerScalesFromPhysicalShift()
-    registration_method.SetShrinkFactorsPerLevel(shrinkFactors=[4, 2, 1])
-    registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=[2, 1, 0])
+    registration_method.SetShrinkFactorsPerLevel(shrinkFactors=list(shrink_factors))
+    registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=list(smoothing_sigmas))
     registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
     registration_method.SetInitialTransform(transform)
 
-    # Execute registration
     final_transform = registration_method.Execute(fixed_img, moving_img)
 
-    # Apply transform
-    moving_img = sitk.Resample(
+    result_img = sitk.Resample(
         moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, fixed_img.GetPixelID()
     )
 
-    stop_condition = registration_method.GetOptimizerStopConditionDescription()
-    final_metric = registration_method.GetMetricValue()
-    info = {"stop_cond": stop_condition, "final_metric": final_metric}
-
-    return moving_img, final_transform, info
-
-
-def rigid_registration_v2(moving_img: sitk.Image, fixed_img: sitk.Image):
-    # Initialize transform
-    transform = sitk.CenteredTransformInitializer(
-        fixed_img,
-        moving_img,
-        sitk.Euler3DTransform(),
-        sitk.CenteredTransformInitializerFilter.GEOMETRY,
-    )
-
-    # Set up registration method
-    registration_method = sitk.ImageRegistrationMethod()
-    registration_method.SetMetricAsMattesMutualInformation(numberOfHistogramBins=50)
-    registration_method.SetMetricSamplingStrategy(registration_method.RANDOM)
-    registration_method.SetMetricSamplingPercentage(0.1)
-    registration_method.SetInterpolator(sitk.sitkLinear)
-    registration_method.SetOptimizerAsGradientDescentLineSearch(
-        learningRate=1.0,
-        numberOfIterations=100,
-        convergenceMinimumValue=1e-6,
-        convergenceWindowSize=10,
-    )
-    registration_method.SetOptimizerScalesFromPhysicalShift()
-    registration_method.SetShrinkFactorsPerLevel(shrinkFactors=[4, 2, 1])
-    registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=[2, 1, 0])
-    registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
-    registration_method.SetInitialTransform(transform)
-
-    # Execute registration
-    final_transform = registration_method.Execute(fixed_img, moving_img)
-
-    # Apply transform
-    moving_img = sitk.Resample(
-        moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, fixed_img.GetPixelID()
-    )
-
-    stop_condition = registration_method.GetOptimizerStopConditionDescription()
-    final_metric = registration_method.GetMetricValue()
-    info = {"stop_cond": stop_condition, "final_metric": final_metric}
-
-    return moving_img, final_transform, info
+    info = {
+        "stop_cond": registration_method.GetOptimizerStopConditionDescription(),
+        "final_metric": registration_method.GetMetricValue(),
+    }
+    return result_img, final_transform, info
 
 
-def rigid_registration_v3(moving_img: sitk.Image, fixed_img: sitk.Image):
-    # Winsorize moving image intensities for metric computation (ANTs [0.005, 0.995])
-    arr = sitk.GetArrayFromImage(moving_img)
-    lo, hi = np.percentile(arr[arr > 0], [0.5, 99.5])
-    moving_winsorized = sitk.Clamp(moving_img, moving_img.GetPixelIDValue(), float(lo), float(hi))
-
-    # Initialize transform
-    transform = sitk.CenteredTransformInitializer(
-        fixed_img,
-        moving_winsorized,
-        sitk.Euler3DTransform(),
-        sitk.CenteredTransformInitializerFilter.GEOMETRY,
-    )
-
-    # Set up registration method
-    registration_method = sitk.ImageRegistrationMethod()
-    registration_method.SetMetricAsMattesMutualInformation(numberOfHistogramBins=32)
-    registration_method.SetMetricSamplingStrategy(registration_method.REGULAR)
-    registration_method.SetMetricSamplingPercentage(0.25)
-    registration_method.SetInterpolator(sitk.sitkLinear)
-    registration_method.SetOptimizerAsGradientDescent(
-        learningRate=0.1,
-        numberOfIterations=1000,
-        convergenceMinimumValue=1e-6,
-        convergenceWindowSize=10,
-    )
-    registration_method.SetOptimizerScalesFromPhysicalShift()
-    registration_method.SetShrinkFactorsPerLevel(shrinkFactors=[8, 4, 2, 1])
-    registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=[3, 2, 1, 0])
-    registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
-    registration_method.SetInitialTransform(transform)
-
-    # Execute registration on winsorized image
-    final_transform = registration_method.Execute(fixed_img, moving_winsorized)
-
-    # Apply transform to original (non-winsorized) image
-    moving_img = sitk.Resample(
-        moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, fixed_img.GetPixelID()
-    )
-
-    stop_condition = registration_method.GetOptimizerStopConditionDescription()
-    final_metric = registration_method.GetMetricValue()
-    info = {"stop_cond": stop_condition, "final_metric": final_metric}
-
-    return moving_img, final_transform, info
-
-
-VERSIONS = {"v1": rigid_registration_v1, "v2": rigid_registration_v2, "v3": rigid_registration_v3}
+VERSIONS = {
+    "v1": rigid_registration,
+    "v2": partial(
+        rigid_registration, sampling_percentage=0.1, optimizer="gradient_descent_line_search"
+    ),
+    "v3": partial(
+        rigid_registration,
+        n_histogram_bins=32,
+        sampling_strategy="regular",
+        sampling_percentage=0.25,
+        learning_rate=0.1,
+        max_iterations=1000,
+        shrink_factors=[8, 4, 2, 1],
+        smoothing_sigmas=[3, 2, 1, 0],
+        winsorize=True,
+    ),
+}
 
 
 def rigid_registration_cli():
