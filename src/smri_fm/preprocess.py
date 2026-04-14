@@ -23,15 +23,18 @@ def rigid_registration(
     smoothing_sigmas: list[int] = (2, 1, 0),
     winsorize: bool = False,
     winsorize_range: tuple[float, float] = (0.5, 99.5),
+    fixed_mask: sitk.Image | None = None,
 ):
     if winsorize:
         arr = sitk.GetArrayFromImage(moving_img)
         lo, hi = np.percentile(arr[arr > 0], list(winsorize_range))
-        moving_img = sitk.Clamp(moving_img, moving_img.GetPixelIDValue(), float(lo), float(hi))
+        moving_img_clip = sitk.Clamp(moving_img, moving_img.GetPixelIDValue(), float(lo), float(hi))
+    else:
+        moving_img_clip = moving_img
 
     transform = sitk.CenteredTransformInitializer(
         fixed_img,
-        moving_img,
+        moving_img_clip,
         sitk.Euler3DTransform(),
         sitk.CenteredTransformInitializerFilter.GEOMETRY,
     )
@@ -57,13 +60,16 @@ def rigid_registration(
     else:
         registration_method.SetOptimizerAsGradientDescent(**optimizer_kwargs)
 
+    if fixed_mask is not None:
+        registration_method.SetMetricFixedMask(fixed_mask)
+
     registration_method.SetOptimizerScalesFromPhysicalShift()
     registration_method.SetShrinkFactorsPerLevel(shrinkFactors=list(shrink_factors))
     registration_method.SetSmoothingSigmasPerLevel(smoothingSigmas=list(smoothing_sigmas))
     registration_method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
     registration_method.SetInitialTransform(transform)
 
-    final_transform = registration_method.Execute(fixed_img, moving_img)
+    final_transform = registration_method.Execute(fixed_img, moving_img_clip)
 
     result_img = sitk.Resample(
         moving_img, fixed_img, final_transform, sitk.sitkBSpline, 0.0, fixed_img.GetPixelID()
@@ -92,6 +98,7 @@ VERSIONS = {
         smoothing_sigmas=[3, 2, 1, 0],
         winsorize=True,
     ),
+    "v4": rigid_registration,  # also uses fixed brain mask
 }
 
 
@@ -111,8 +118,18 @@ def rigid_registration_cli():
     moving_img = sitk.ReadImage(args.input, sitk.sitkFloat32)
     fixed_img = sitk.ReadImage(str(template_path), sitk.sitkFloat32)
 
+    if args.version in {"v4"}:
+        mask_path = tflow.get(
+            "MNI152NLin6Asym", desc="brain", resolution=1, suffix="mask", extension="nii.gz"
+        )
+        fixed_mask = sitk.ReadImage(str(mask_path), sitk.sitkUInt8)
+    else:
+        fixed_mask = None
+
     t0 = time.perf_counter()
-    result_img, transform, info = VERSIONS[args.version](moving_img, fixed_img)
+    result_img, transform, info = VERSIONS[args.version](
+        moving_img, fixed_img, fixed_mask=fixed_mask
+    )
     sitk.WriteImage(result_img, args.output)
     elapsed = time.perf_counter() - t0
     record = {"input": args.input, "version": args.version, **info, "run_time": elapsed}
