@@ -43,6 +43,7 @@ def rigid_registration(
     winsorize_range: tuple[float, float] = (0.5, 99.5),
     fixed_mask: sitk.Image | None = None,
     moving_to_iso: bool = False,
+    max_step_size: float | None = None,
 ):
     temp_img = moving_img
     if moving_to_iso:
@@ -75,6 +76,8 @@ def rigid_registration(
         convergenceMinimumValue=1e-6,
         convergenceWindowSize=10,
     )
+    if max_step_size:
+        optimizer_kwargs["maximumStepSizeInPhysicalUnits"] = max_step_size
     if optimizer == "gradient_descent_line_search":
         registration_method.SetOptimizerAsGradientDescentLineSearch(**optimizer_kwargs)
     else:
@@ -146,6 +149,27 @@ VERSIONS = {
         smoothing_sigmas=(2,),
         moving_to_iso=True,
     ),  # same as v8 but with head mask
+    "v10": partial(
+        rigid_registration,
+        sampling_strategy="regular",
+        sampling_percentage=0.25,
+        optimizer="gradient_descent_line_search",
+        max_iterations=1000,
+        shrink_factors=(4,),
+        smoothing_sigmas=(2,),
+        moving_to_iso=True,
+    ),
+    "v11": partial(
+        rigid_registration,
+        sampling_percentage=0.25,
+        optimizer="gradient_descent_line_search",
+        learning_rate=0.1,
+        max_iterations=1000,
+        shrink_factors=(4,),
+        smoothing_sigmas=(2,),
+        moving_to_iso=True,
+        max_step_size=4.0,
+    ),
 }
 
 
