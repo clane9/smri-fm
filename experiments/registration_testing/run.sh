@@ -27,7 +27,7 @@ for input in "${images[@]}"; do
     if [[ -f $output ]]; then
         continue
     fi
-    rigid_registration \
+    uv run rigid_registration \
         --version "$VERSION" \
         --n-threads "$N_THREADS" \
         "$input" "$output" \
