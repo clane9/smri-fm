@@ -1,12 +1,17 @@
 import argparse
 import json
+import tempfile
 import time
+from contextlib import contextmanager
 from functools import partial
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
 import SimpleITK as sitk
 import templateflow.api as tflow
+import niwrap
+from niwrap import ants
 
 
 def to_iso(img: sitk.Image, resolution: float = 1.0) -> sitk.Image:
@@ -105,6 +110,81 @@ def rigid_registration(
     return result_img, final_transform, info
 
 
+@contextmanager
+def setup_runner(n_threads: int | None = None):
+    environ = {}
+    if n_threads:
+        environ["ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS"] = str(n_threads)
+
+    with tempfile.TemporaryDirectory(prefix="niwrap-") as tmp_dir:
+        niwrap.use_docker(data_dir=Path(tmp_dir), environ=environ)
+        runner = niwrap.get_global_runner()
+        yield runner
+
+
+def rigid_registration_ants(
+    moving_img: sitk.Image,
+    fixed_img: sitk.Image,
+    *,
+    runner: niwrap.DockerRunner,
+    seed: int = 42,
+):
+    moving_path = runner.data_dir / "moving.nii.gz"
+    fixed_path = runner.data_dir / "fixed.nii.gz"
+    output_prefix = "output"
+
+    sitk.WriteImage(moving_img, moving_path)
+    sitk.WriteImage(fixed_img, fixed_path)
+
+    output = ants.ants_registration(
+        stages=[
+            ants.ants_registration_stage(
+                transform=ants.ants_registration_transform_rigid(gradient_step=0.05),
+                metric=ants.ants_registration_metric_mutual_information(
+                    fixed_image=fixed_path,
+                    moving_image=moving_path,
+                    metric_weight=1,
+                    number_of_bins=ants.ants_registration_number_of_bins(
+                        number_of_bins_value=32,
+                        sampling_strategy=ants.ants_registration_sampling_strategy_1(
+                            sampling_strategy_value="Regular",
+                            sampling_percentage=ants.ants_registration_sampling_percentage_1(
+                                sampling_percentage_value=0.25
+                            ),
+                        ),
+                    ),
+                ),
+                convergence=ants.ants_registration_convergence(
+                    convergence="100x100",
+                    convergence_threshold=0.000001,
+                    convergence_window_size=20,
+                ),
+                smoothing_sigmas="2.0x1.0vox",
+                shrink_factors="2x1",
+                use_histogram_matching=True,
+            ),
+        ],
+        random_seed=seed,
+        collapse_output_transforms=True,
+        dimensionality=3,
+        initial_moving_transform=ants.ants_registration_initial_moving_transform_initialization_feature(
+            fixed_image=fixed_path,
+            moving_image=moving_path,
+            initialization_feature=0,
+        ),
+        winsorize_image_intensities=ants.ants_registration_winsorize_image_intensities(
+            lower_quantile=0.005, upper_quantile=0.995
+        ),
+        interpolation="LanczosWindowedSinc",
+        output=f"[{output_prefix}_,{output_prefix}.nii.gz]",
+    )
+
+    transform = sitk.ReadTransform(output.root / f"{output_prefix}_0GenericAffine.mat")
+    output_img = sitk.ReadImage(output.root / f"{output_prefix}.nii.gz", sitk.sitkFloat32)
+    info = {"stop_cond": "", "final_metric": 0.0}
+    return output_img, transform, info
+
+
 VERSIONS = {
     "v1": rigid_registration,
     "v2": partial(
@@ -170,6 +250,7 @@ VERSIONS = {
         moving_to_iso=True,
         max_step_size=4.0,
     ),
+    "v1_ants": rigid_registration_ants,
 }
 
 
@@ -200,9 +281,15 @@ def rigid_registration_cli():
         fixed_mask = None
 
     t0 = time.perf_counter()
-    result_img, transform, info = VERSIONS[args.version](
-        moving_img, fixed_img, fixed_mask=fixed_mask
-    )
+    if args.version.endswith("_ants"):
+        with setup_runner(n_threads=args.n_threads) as runner:
+            result_img, transform, info = VERSIONS[args.version](
+                moving_img, fixed_img, runner=runner
+            )
+    else:
+        result_img, transform, info = VERSIONS[args.version](
+            moving_img, fixed_img, fixed_mask=fixed_mask
+        )
     sitk.WriteImage(result_img, args.output)
     elapsed = time.perf_counter() - t0
     record = {"input": args.input, "version": args.version, **info, "run_time": elapsed}

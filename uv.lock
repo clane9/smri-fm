@@ -1628,6 +1628,176 @@ wheels = [
 ]
 
 [[package]]
+name = "niwrap"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "niwrap-afni" },
+    { name = "niwrap-ants" },
+    { name = "niwrap-c3d" },
+    { name = "niwrap-dcm2niix" },
+    { name = "niwrap-fastsurfer" },
+    { name = "niwrap-freesurfer" },
+    { name = "niwrap-fsl" },
+    { name = "niwrap-greedy" },
+    { name = "niwrap-mrtrix" },
+    { name = "niwrap-mrtrix3tissue" },
+    { name = "niwrap-niftyreg" },
+    { name = "niwrap-workbench" },
+    { name = "styxdocker" },
+    { name = "styxgraph" },
+    { name = "styxsingularity" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1f/64/8dd5f8baac33b081a8a4b2306fd5f5254adcfc8080896601f78c8d3ef9db/niwrap-0.9.3.tar.gz", hash = "sha256:fc220ab5b31765c2a2bf057de02c6ef5715e1e2ef04783442d441c8a175ccbaa", size = 3569, upload-time = "2026-04-11T23:49:07.063Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/1f/7e79436ee0a7db2f6a54053e8397c519cc36956346c143b53c1957384b7a/niwrap-0.9.3-py3-none-any.whl", hash = "sha256:977b70b513522098097b87f4c839600b2865b75c68c7b055210bc6ebf4e421d9", size = 4222, upload-time = "2026-04-11T23:48:50.586Z" },
+]
+
+[[package]]
+name = "niwrap-afni"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/df/d4/50b61f3472c3b75623f89f9e3081dea8d040cd06b07d931519887527dbc7/niwrap_afni-0.9.3.tar.gz", hash = "sha256:69db612ad95d4ec692e2a03a3ff98ba0028b28afc8111e52ea27e730373eeb3b", size = 806038, upload-time = "2026-04-11T23:49:07.908Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/ad/a5b74fe3087f647a2d3b6d334b46aec5568bfdbb7d00d1ad9d6d40e79166/niwrap_afni-0.9.3-py3-none-any.whl", hash = "sha256:4942880c03f03d4dc9eae3b63397ca4fbff505cf8dcacf2cf467b76fa7211407", size = 1490695, upload-time = "2026-04-11T23:48:51.784Z" },
+]
+
+[[package]]
+name = "niwrap-ants"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/fa/f0700776ffdb1190b0acae91083b12851e82b3e81bad3621aebdc9f4011a/niwrap_ants-0.9.3.tar.gz", hash = "sha256:03a08d690c0e5c4c19e5d67d4407d10eefb6b57f5100cd2801ade469dabdddc1", size = 147787, upload-time = "2026-04-11T23:49:09.2Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/4b/c0bd3a9095acd8fa7c2b8ce2160ce5e7fe577e6391e750599325f7609d2e/niwrap_ants-0.9.3-py3-none-any.whl", hash = "sha256:013b7ab78d1a71bfe7fbf5f942be01bc7c99e05b902b6131455db370b4dc6c2b", size = 235899, upload-time = "2026-04-11T23:48:53.683Z" },
+]
+
+[[package]]
+name = "niwrap-c3d"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e8/df/d1e642cc6f71b8f693651e6e40cefd6413b129d95bd18c88a6beefb91f86/niwrap_c3d-0.9.3.tar.gz", hash = "sha256:2754043a42415ed52c42109fc46f997e9fd9a02913a60113774a6ea18e316898", size = 196057, upload-time = "2026-04-11T23:49:10.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/90/ca6c23af9155c21829acf974795bc1b7075f416d93a69c8949771f1563cc/niwrap_c3d-0.9.3-py3-none-any.whl", hash = "sha256:5158377a8f7ff6140091a11808db6413f53e808133ec385046801f2fa92cb5ab", size = 198051, upload-time = "2026-04-11T23:48:55.113Z" },
+]
+
+[[package]]
+name = "niwrap-dcm2niix"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/99/a7a8248814dc40eb6da1051956dace9af859e18da1ead68a77db5f38f475/niwrap_dcm2niix-0.9.3.tar.gz", hash = "sha256:e44ed754e9c28c0f92fab4422d1ab5fd2432f339348540fddef25fd6914a5a47", size = 5961, upload-time = "2026-04-11T23:49:11.185Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e7/4c/f02a924fe890c82cb0cfbfa06f7370e49000ebf34fcdf7833ae84b62fbcc/niwrap_dcm2niix-0.9.3-py3-none-any.whl", hash = "sha256:593a9812081898e8bd24840f754aed63c886b5d0045f25e7c185b77ac7592ebf", size = 7409, upload-time = "2026-04-11T23:48:56.436Z" },
+]
+
+[[package]]
+name = "niwrap-fastsurfer"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/76/32/debd4dbedf1d41176905f44636217ca41df46848d05516dac0518c96ab17/niwrap_fastsurfer-0.9.3.tar.gz", hash = "sha256:2616dc543155a944e019cd9d3655d48f7f684f989cb1a7156c16542634521b64", size = 5840, upload-time = "2026-04-11T23:49:11.943Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/f5/1d3a786f57a674b1e28fef64e745f78f3afba0bc6d71677657d6abb7c7fc/niwrap_fastsurfer-0.9.3-py3-none-any.whl", hash = "sha256:8578a25ddfc8640ae61af7c8215b74d2eb508658161a839bf94efb981f12f8c7", size = 7387, upload-time = "2026-04-11T23:48:57.148Z" },
+]
+
+[[package]]
+name = "niwrap-freesurfer"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9e/bd/6597e6175aef55d90d2b0e3ee7fc499e781e04beac0dee58190d67445427/niwrap_freesurfer-0.9.3.tar.gz", hash = "sha256:ab5fa1fb5419b0d63c987f18e196561b06e7b391f2f92847ab64418dc1205e69", size = 879641, upload-time = "2026-04-11T23:49:12.783Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/4c/99d939969a61242df275f69c71423a36bde7627c5ca699734eedf361d82a/niwrap_freesurfer-0.9.3-py3-none-any.whl", hash = "sha256:6ddf3ea3b67cfec435f438fb3dd061ebdc2a298ceca5f316f9d9368f6fd8c654", size = 1706671, upload-time = "2026-04-11T23:48:58.459Z" },
+]
+
+[[package]]
+name = "niwrap-fsl"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/db/39/8e88383e8e1b43b924e0f83ea27590f574164bf2ded299ecca7c255ee74e/niwrap_fsl-0.9.3.tar.gz", hash = "sha256:96da95210cd79cf33a8c38b3da060436d159ad9e973069df698d18e3cde4e7df", size = 359444, upload-time = "2026-04-11T23:49:14.072Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/e3/232aed1c458c78445f832dca408e2b92d43f8d51e137372c21533df5f6a2/niwrap_fsl-0.9.3-py3-none-any.whl", hash = "sha256:40dbdf399dd7dfcf89fb2cba6430a3bdbd363410c08f803159ad28a3bcf5f3c1", size = 656137, upload-time = "2026-04-11T23:49:00.162Z" },
+]
+
+[[package]]
+name = "niwrap-greedy"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f1/20/7c2f1d058f17babcd79a38f75ec6da2bff97b1b315a74a8d77ca17133d4a/niwrap_greedy-0.9.3.tar.gz", hash = "sha256:4f25d14e99f3cd161c7dbdafd28587f52c8bd014ad27c2746f8b8ca30019ce45", size = 15960, upload-time = "2026-04-11T23:49:15.802Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/b4/18ffe4a28ae73f662c06ea9b3d2942213b8cdfeccfc638e21c57d52e0142/niwrap_greedy-0.9.3-py3-none-any.whl", hash = "sha256:24212e34727040460d1bee44bccfd70b5aa33ee7e05976b99c8c4c16fbab6932", size = 17240, upload-time = "2026-04-11T23:49:01.17Z" },
+]
+
+[[package]]
+name = "niwrap-mrtrix"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/b7/0b9ca637bc7719ce0051c3fa5c205d698d94d054ce5bc868dd5482c95add/niwrap_mrtrix-0.9.3.tar.gz", hash = "sha256:9a44b8e5ba142f12c545247e8d89de7bb6246813b05ffd4fdb18cea518aee255", size = 281760, upload-time = "2026-04-11T23:49:16.869Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/b7/e348d637ce4510b5fc672584c24cb4e6e31cef15ac6b7fa582cc579db5ff/niwrap_mrtrix-0.9.3-py3-none-any.whl", hash = "sha256:299a6fa07903aad45cf16b6a03f63a756363bf532e6643c505d1f9e553098201", size = 496823, upload-time = "2026-04-11T23:49:02.284Z" },
+]
+
+[[package]]
+name = "niwrap-mrtrix3tissue"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4c/01/d7704d544bbf42b028eb23a2d432955515cf560bbb8e2e0305eef5fe9719/niwrap_mrtrix3tissue-0.9.3.tar.gz", hash = "sha256:debd47d3e8ff28a76012953163b77acf0ed61690bb64991a0182aad6daf8e365", size = 4488, upload-time = "2026-04-11T23:49:17.848Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/08/9d357e98ef9406c03af8b2484b47c4f8dbd344b466687a03a534ef201016/niwrap_mrtrix3tissue-0.9.3-py3-none-any.whl", hash = "sha256:a4ae845bb5483971133357871364bea393bdd0400de07d9740024e026d081e65", size = 6199, upload-time = "2026-04-11T23:49:03.532Z" },
+]
+
+[[package]]
+name = "niwrap-niftyreg"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/57/c2ae5e6a7cb267a6bc647c1d1a77a512bfee20f15d8443cfad53b4a038ee/niwrap_niftyreg-0.9.3.tar.gz", hash = "sha256:01d4607e71e823f6c8375b4c5651b8ac1f34632b4194c5280074aa7a7523ba64", size = 15653, upload-time = "2026-04-11T23:49:18.453Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/72/d92fdbfe1d0838cfbb0ce1aa3d6a291636d5c10cc98a736d110536f5183a/niwrap_niftyreg-0.9.3-py3-none-any.whl", hash = "sha256:9aa3ea9e291182f77f73912730412f267de117ce71c543ac623073c288a949ea", size = 24386, upload-time = "2026-04-11T23:49:04.326Z" },
+]
+
+[[package]]
+name = "niwrap-workbench"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0f/cd/69c44aab8e105f7648acf03ef45614e864ea53df3c4113db0604b8e8a0ca/niwrap_workbench-0.9.3.tar.gz", hash = "sha256:3d974c7162914092a5a389c61c41fdb8c355e3dc741edb302143f0a96beadd88", size = 288121, upload-time = "2026-04-11T23:49:19.314Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/75/f486d1dd6508f0d9b2a5c94296df4373f0ff6ee036a6ade08be83b50d2da/niwrap_workbench-0.9.3-py3-none-any.whl", hash = "sha256:963cc843cbcbf782910bcd407de75a368eeffec2c4b267ce9ba42b9f4246495a", size = 545904, upload-time = "2026-04-11T23:49:05.622Z" },
+]
+
+[[package]]
 name = "nodeenv"
 version = "1.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2885,6 +3055,7 @@ dependencies = [
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "nibabel" },
+    { name = "niwrap" },
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pandas" },
@@ -2907,6 +3078,7 @@ requires-dist = [
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "nibabel" },
+    { name = "niwrap" },
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pandas" },
@@ -2997,6 +3169,65 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/28/e3/55dcc2cfbc3ca9c29519eb6884dd1415ecb53b0e934862d3559ddcb7e20b/stack_data-0.6.3.tar.gz", hash = "sha256:836a778de4fec4dcd1dcd89ed8abff8a221f58308462e1c4aa2a3cf30148f0b9", size = 44707, upload-time = "2023-09-30T13:58:05.479Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl", hash = "sha256:d5558e0c25a4cb0853cddad3d77da9891a08cb85dd9f9f91b9f8cd66e511e695", size = 24521, upload-time = "2023-09-30T13:58:03.53Z" },
+]
+
+[[package]]
+name = "styxcontainer-common"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d4/88/6dece099cdd8799bbccf61b9eea6bf554a2d94f4326c6b90e7460b60a151/styxcontainer_common-0.1.0.tar.gz", hash = "sha256:1ef008816b1667bd573b4f618333b1fcda4b483dd000835936e5c6573b47a69e", size = 3938, upload-time = "2026-04-14T14:16:39.265Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bb/6d/172ea633451f85f2548f38bca5888d5533bf9026be315db3fd36fcfb0371/styxcontainer_common-0.1.0-py3-none-any.whl", hash = "sha256:9469a19ed23e973575ac8a21a1656e7dcf2119c2124c475a3cf40dc27c89165d", size = 6087, upload-time = "2026-04-14T14:16:38.004Z" },
+]
+
+[[package]]
+name = "styxdefs"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/e4/811682acf2343276ff166bf330dffd53a3accedb3c36c76b3a13010d990f/styxdefs-0.6.1.tar.gz", hash = "sha256:cb8053f25b9857e2cc80725223bbe49eb139551dd97399e1903386ab59fc4f18", size = 4082, upload-time = "2026-04-14T14:33:41.429Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/1c/60aa84abfa32d85c79d92ca872e8a21a271cd0dcd4f4e08bc3f9de507217/styxdefs-0.6.1-py3-none-any.whl", hash = "sha256:7eaf2a4a2b74fa66ebc1564e3b15098079c96cee58f6df2bfe88a6e00c60dd19", size = 6192, upload-time = "2026-04-14T14:33:40.656Z" },
+]
+
+[[package]]
+name = "styxdocker"
+version = "0.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxcontainer-common" },
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/fa/49ea7420572df1f28fef3cbcabb7214bdebdb2babd8d9d7d35c44f0b75f0/styxdocker-0.6.4.tar.gz", hash = "sha256:82d91bae01e6cf86ba9517c491df16b3851f17f8cfe16858d78787619dc3b02d", size = 3549, upload-time = "2026-04-14T14:33:48.374Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/75/c2821919cb0ad045267e1419c53f62902e1f5c67d5e65841a80719ceef3c/styxdocker-0.6.4-py3-none-any.whl", hash = "sha256:6cabaf6ec421b70f72870bd50fb5f24b3310d6f4cf386e62794d7756776ec529", size = 4396, upload-time = "2026-04-14T14:33:47.462Z" },
+]
+
+[[package]]
+name = "styxgraph"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/f6/b0cd6cdcac3ea2a15454ad59d87041ee8bd7cbba4b776829a81b50461d49/styxgraph-0.6.1.tar.gz", hash = "sha256:5a6364660c65a589f5e596279e88481b94a3d9927d0b511b7fc05bbcdce01365", size = 2860, upload-time = "2026-04-14T14:33:48.69Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/e3/afdffd5149a86f1eaa05a85a56d59cca20011ac5cb2f044278e95513f22b/styxgraph-0.6.1-py3-none-any.whl", hash = "sha256:3f387abb6956b16bdad6ef0b64a65b2272f613eb0f7621810e31be4186534796", size = 3591, upload-time = "2026-04-14T14:33:47.645Z" },
+]
+
+[[package]]
+name = "styxsingularity"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "styxcontainer-common" },
+    { name = "styxdefs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/32/92065b8ccff061a90b36f4939dffa9c3481f5d17523cf9c28fadf7dab66d/styxsingularity-0.7.2.tar.gz", hash = "sha256:7700f888dee5cb32bfe121add2cc58b018358ce8c461b83a26d70128e6bd6e02", size = 3637, upload-time = "2026-04-14T14:33:48.573Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/16/631312ec12c1dcf6da6a3a182a80cc2f2b7cf61ba971df795af48d69cf17/styxsingularity-0.7.2-py3-none-any.whl", hash = "sha256:a8197d0ca48c9a275fbc0bbbdb9be4301194ac17bd43df11486669ef60fc32b5", size = 4441, upload-time = "2026-04-14T14:33:47.598Z" },
 ]
 
 [[package]]
