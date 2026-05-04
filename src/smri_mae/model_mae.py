@@ -764,7 +764,7 @@ class MaskedAutoencoderViT(nn.Module, PyTorchModelHubMixin):
         model_kwargs = {k: args[k] for k in ["img_size", "in_chans", "patch_size"] if k in args}
         model_kwargs.update(args["model_kwargs"] or {})
         model_kwargs.update(kwargs)
-        model_fn = locals()[args["model"]]
+        model_fn = MODELS_DICT[args["model"]]
         model = model_fn(**model_kwargs)
         model.load_state_dict(ckpt["model"])
         return model

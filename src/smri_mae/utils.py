@@ -489,6 +489,8 @@ def pre_send_to_cuda_wrapper(generator, device=None):
             yield data
         torch.cuda.current_stream(device).wait_stream(stream)
         data = next_data
+    if data is not None:
+        yield data
 
 
 # other misc utils
