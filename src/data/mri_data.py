@@ -26,6 +26,9 @@ def make_mri_wds_dataset(
     shuffle: bool = True,
     buffer_size: int = 1000,
     img_size: Sequence[int] | None = (208, 240, 208),
+    preprocessed: bool = False,
+    batch_size: int | None = None,
+    collate_fn: Any | None = None,
 ) -> wds.WebDataset:
     """Make a structural MRI volume WebDataset.
 
@@ -38,6 +41,13 @@ def make_mri_wds_dataset(
     - image: float tensor shaped [1, D, H, W]
     - img_mask: float tensor shaped [D, H, W]
     - meta: collatable metadata dictionary
+
+    Args:
+        preprocessed: if True, skip padding and z-score (data was pre-processed
+            by preprocess_wds.py and is already padded, normalized, and float16).
+        batch_size: if set, batch samples inside each worker using collate_fn.
+            Set DataLoader batch_size=None when using this.
+        collate_fn: collation function used when batch_size is set.
     """
     dataset = wds.WebDataset(
         expand_urls(url),
@@ -46,17 +56,20 @@ def make_mri_wds_dataset(
         shardshuffle=False,
         nodesplitter=wds.split_by_node,
     )
-    dataset = dataset.decode().map(extract_vol_sample, handler=warn_and_continue)
 
-    dataset = dataset.map(
-        lambda sample: vol_transform(
-            sample,
-            img_size=img_size,
-        )
-    )
+    if preprocessed:
+        # bypass extract_vol_sample to preserve float16 storage dtype
+        dataset = dataset.decode().map(load_preprocessed_sample, handler=warn_and_continue)
+    else:
+        dataset = dataset.decode().map(extract_vol_sample, handler=warn_and_continue)
+        dataset = dataset.map(lambda sample: vol_transform(sample, img_size=img_size))
 
     if shuffle:
         dataset = dataset.shuffle(buffer_size)
+
+    if batch_size is not None:
+        dataset = dataset.batched(batch_size, collation_fn=collate_fn)
+
     return dataset
 
 
@@ -124,6 +137,24 @@ def warn_and_continue(exn: Exception) -> bool:
     # originate in a child data loader worker process.
     print(f"WARNING {repr(exn)}")
     return True
+
+
+def load_preprocessed_sample(sample: dict[str, Any]) -> dict[str, Any]:
+    """Load a pre-processed sample (output of preprocess_wds.py).
+
+    Reads directly from the raw wds-decoded keys to preserve float16 storage.
+    Skips extract_vol_sample and vol_transform — padding and z-score were done
+    offline. Float16 image is kept as-is; the H2D transfer and autocast handle
+    the rest.
+    """
+    image = torch.as_tensor(np.asarray(sample["image.npy"]))   # float16 preserved
+    mask = torch.as_tensor(np.asarray(sample["mask.npy"]) > 0)  # bool: 1 byte/voxel for IPC
+    meta = make_collatable(sample["meta.json"])
+    return {
+        "image": image[None],
+        "img_mask": mask,
+        "meta": meta,
+    }
 
 
 def extract_vol_sample(sample: dict[str, Any]) -> dict[str, Any]:
