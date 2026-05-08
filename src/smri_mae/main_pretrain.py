@@ -197,14 +197,19 @@ def mri_collate(
     samples: list[dict],
     *,
     augmentation: dict | None = None,
+    include_meta: bool = True,
 ) -> dict[str, Tensor]:
     if augmentation:
         samples = [mri_data.augment_sample(sample, augmentation) for sample in samples]
-    return {
-        "image": torch.stack([torch.from_numpy(sample["image"]) for sample in samples]),
-        "img_mask": torch.stack([torch.from_numpy(sample["img_mask"]).bool() for sample in samples]),
-        "meta": [mri_data.make_collatable(sample["meta"]) for sample in samples],
+    batch = {
+        "image": torch.stack([torch.as_tensor(sample["image"]) for sample in samples]),
+        "img_mask": torch.stack(
+            [torch.as_tensor(sample["img_mask"], dtype=torch.bool) for sample in samples]
+        ),
     }
+    if include_meta:
+        batch["meta"] = [mri_data.make_collatable(sample["meta"]) for sample in samples]
+    return batch
 
 
 def create_data_loaders(args: DictConfig):
@@ -234,6 +239,7 @@ def create_data_loaders(args: DictConfig):
                 augmentation=args.augmentation
                 if dataset_name == args.train_dataset and args.augmentation.enabled
                 else None,
+                include_meta=dataset_name != args.train_dataset,
             ),
             shuffle=False,
             num_workers=args.num_workers,
@@ -315,34 +321,33 @@ def train_one_epoch(
             ut.update_lr(optimizer.param_groups, lr)
 
         images = batch["image"]
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            mask_start = time.perf_counter()
-        visible_mask, pred_mask, mask_stats = mri_data.prepare_model_masks(batch, mask_fn)
-        if profile_step and use_cuda:
-            torch.cuda.synchronize()
-            metric_logger.update(mask_time=time.perf_counter() - mask_start)
+        masks = batch["img_mask"]
 
         if profile_step and use_cuda:
             torch.cuda.synchronize()
             forward_start = time.perf_counter()
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
-            loss = model(
+            loss, mask_stats = model(
                 images,
-                img_mask=None,
-                visible_mask=visible_mask,
-                pred_mask=pred_mask,
-                mask_ratio=None,
+                img_mask=masks,
+                mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
+                mask_fn=mask_fn if args.masking != "random" else None,
+                include_mask_stats=profile_step,
                 with_state=False,
             )
         if profile_step and use_cuda:
             torch.cuda.synchronize()
             metric_logger.update(forward_time=time.perf_counter() - forward_start)
 
+        loss_value = loss.item()
+        if not math.isfinite(loss_value):
+            raise RuntimeError(f"Loss is {loss_value}, stopping training")
+
         if profile_step and use_cuda:
             torch.cuda.synchronize()
             backward_start = time.perf_counter()
+
         grad_norm = ut.backward_step(
             loss / args.accum_iter,
             optimizer,
@@ -350,14 +355,12 @@ def train_one_epoch(
             need_update=need_update,
             max_norm=args.clip_grad,
         )
+
         if profile_step and use_cuda:
             torch.cuda.synchronize()
             metric_logger.update(backward_time=time.perf_counter() - backward_start)
 
         if need_update:
-            loss_value = loss.item()
-            if not math.isfinite(loss_value):
-                raise RuntimeError(f"Loss is {loss_value}, stopping training")
             grad_norm_value = grad_norm.item()
             metric_logger.update(
                 loss=loss_value,
@@ -418,16 +421,15 @@ def evaluate(
         batch_step = batch_idx + 1
 
         images = batch["image"]
-        visible_mask, pred_mask, _ = mri_data.prepare_model_masks(batch, mask_fn)
+        img_mask = batch["img_mask"]
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss, state = model(
                 images,
-                img_mask=None,
-                visible_mask=visible_mask,
-                pred_mask=pred_mask,
-                mask_ratio=None,
+                img_mask=img_mask,
+                mask_ratio=args.mask_ratio,
                 pred_mask_ratio=args.pred_mask_ratio,
+                mask_fn=mask_fn if args.masking != "random" else None,
             )
 
         metric_logger.update(loss=loss)

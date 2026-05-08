@@ -12,9 +12,9 @@ def augment_sample(sample: dict[str, Any], config: dict[str, Any]) -> dict[str, 
     cached raw samples untouched.
     """
     out = dict(sample)
-    image_tensor = torch.from_numpy(sample["image"])
-    image = image_tensor.float()
-    mask = torch.from_numpy(sample["img_mask"]).float()
+    image_dtype = sample["image"].dtype
+    image = torch.tensor(sample["image"], dtype=torch.float32)
+    mask = torch.tensor(sample["img_mask"], dtype=torch.float32)
     if image.shape != mask.shape:
         raise ValueError(
             f"MRI augmentation expects image and img_mask with same shape, got "
@@ -37,32 +37,9 @@ def augment_sample(sample: dict[str, Any], config: dict[str, Any]) -> dict[str, 
         image = image + torch.randn_like(image) * noise_std
     image = image * mask
 
-    out["image"] = image.to(image_tensor.dtype).numpy()
+    out["image"] = image.numpy().astype(image_dtype, copy=False)
     out["img_mask"] = mask.bool().numpy()
     return out
-
-
-def prepare_model_masks(
-    batch: dict[str, torch.Tensor],
-    mask_fn,
-):
-    mask_ratio = float(mask_fn.mask_ratio)
-    patch_mask = mask_fn.patch_mask_from_img_mask(batch["img_mask"])
-    valid_tokens = patch_mask.sum(dim=1)
-    num_visible = valid_tokens.min().clamp(
-        max=int((1 - mask_ratio) * patch_mask.shape[1])
-    )
-    visible_mask = mask_fn(batch["img_mask"]).unsqueeze(1)
-    return (
-        visible_mask,
-        mask_fn.patch_mask_to_volume(patch_mask).unsqueeze(1),
-        {
-            "mask_ratio": mask_ratio,
-            "visible_tokens_mean": float(num_visible.item()),
-            "valid_patch_tokens_mean": float(valid_tokens.float().mean().item()),
-            "valid_patch_tokens_min": float(valid_tokens.min().item()),
-        },
-    )
 
 
 def _sample_range(value: float | Sequence[float]) -> float:

@@ -1,5 +1,5 @@
 # Name of the run. Used for output directory suffix and wandb.
-name: pretrain_smri_mae
+name: patch8_pretrain_smri_mae
 
 # Description of the run. Goes in wandb notes.
 notes: null
@@ -10,10 +10,10 @@ output_dir: checkpoints
 
 # Standard 3D structural MRI volume size.
 img_size: [208, 240, 208]
-patch_size: 16
+patch_size: 8
 
 # Masking.
-mask_ratio: 0.8
+mask_ratio: 0.80
 pred_mask_ratio: null
 masking: random
 masking_kwargs: {}
@@ -21,13 +21,13 @@ masking_kwargs: {}
 # Train-time MRI augmentation. Applied once per loaded train volume before
 # masking. Evaluation stays unaugmented.
 augmentation:
-  enabled: true
+  enabled: false
   pad_range: [4, 8]
   scale: [0.9, 1.1]
   shift: [-0.1, 0.1]
   noise_std: [0.0, 0.03]
   blur:
-    p: 0.1
+    p: 0.0
     sigma: [0.3, 0.6]
 
 # Hybrid 3D masking example.
@@ -48,7 +48,6 @@ model_kwargs:
 
   no_decode_pos: false
   mask_drop_scale: false
-  pred_edge_pad: 0
 
   class_token: true
   reg_tokens: 0
@@ -82,19 +81,19 @@ eval_datasets:
   - aabc_val
 
 # Data loader.
-num_workers: 8
-prefetch_factor: 4
-presend_cuda: true
+num_workers: 16
+prefetch_factor: 8
+presend_cuda: false
 
 # Synchronizing step profiler. Set to a small value, e.g. 10, for bottleneck checks.
-profile_steps: 10
+profile_steps: 0
 
 # Optimization.
 epochs: 400
-batch_size: 64
+batch_size: 32
 accum_iter: 1
 
-base_lr: 0.003
+base_lr: 0.001
 min_lr: 1e-6
 warmup_epochs: 40
 weight_decay: 0.05
@@ -117,12 +116,12 @@ max_checkpoints: 5
 # Sync checkpoints to an R2 bucket using the AWS CLI. Set to a URL to enable.
 r2_sync: null
 
-device: cuda
+device: cuda:0
 distributed: false
 seed: 7338
 eval_seed: 7338
 debug: false
 
-wandb: true
+wandb: false
 wandb_entity: null
 wandb_project: smri-fm
