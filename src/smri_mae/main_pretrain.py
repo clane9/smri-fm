@@ -201,11 +201,12 @@ def mri_collate(
 ) -> dict[str, Tensor]:
     if augmentation:
         samples = [mri_data.augment_sample(sample, augmentation) for sample in samples]
+        masks = [torch.as_tensor(sample["img_mask"], dtype=torch.bool) for sample in samples]
+    else:
+        masks = [torch.as_tensor(sample["img_mask"]) for sample in samples]
     batch = {
         "image": torch.stack([torch.as_tensor(sample["image"]) for sample in samples]),
-        "img_mask": torch.stack(
-            [torch.as_tensor(sample["img_mask"], dtype=torch.bool) for sample in samples]
-        ),
+        "img_mask": torch.stack(masks),
     }
     if include_meta:
         batch["meta"] = [mri_data.make_collatable(sample["meta"]) for sample in samples]
@@ -321,7 +322,8 @@ def train_one_epoch(
             ut.update_lr(optimizer.param_groups, lr)
 
         images = batch["image"]
-        masks = batch["img_mask"]
+        masks = mri_data.unpack_img_mask_batch(batch["img_mask"], images.shape[1:])
+        batch["img_mask"] = masks
 
         if profile_step and use_cuda:
             torch.cuda.synchronize()
@@ -421,7 +423,8 @@ def evaluate(
         batch_step = batch_idx + 1
 
         images = batch["image"]
-        img_mask = batch["img_mask"]
+        img_mask = mri_data.unpack_img_mask_batch(batch["img_mask"], images.shape[1:])
+        batch["img_mask"] = img_mask
 
         with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=args.amp):
             loss, state = model(
