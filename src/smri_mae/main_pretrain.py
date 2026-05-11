@@ -201,11 +201,13 @@ def mri_collate(
 ) -> dict[str, Tensor]:
     if augmentation:
         samples = [mri_data.augment_sample(sample, augmentation) for sample in samples]
-        masks = [torch.as_tensor(sample["img_mask"], dtype=torch.bool) for sample in samples]
+        masks = [
+            torch.as_tensor(sample["img_mask"].copy(), dtype=torch.bool) for sample in samples
+        ]
     else:
-        masks = [torch.as_tensor(sample["img_mask"]) for sample in samples]
+        masks = [torch.as_tensor(sample["img_mask"].copy()) for sample in samples]
     batch = {
-        "image": torch.stack([torch.as_tensor(sample["image"]) for sample in samples]),
+        "image": torch.stack([torch.as_tensor(sample["image"].copy()) for sample in samples]),
         "img_mask": torch.stack(masks),
     }
     if include_meta:

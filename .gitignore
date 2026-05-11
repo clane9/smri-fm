@@ -30,6 +30,7 @@ _version.py
 *.npy
 /datasets/aabc/files/
 *.pth
+*.mds
 
 #Heavy dir
 checkpoints/
