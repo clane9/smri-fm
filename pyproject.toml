@@ -34,6 +34,17 @@ dependencies = [
     "tqdm",
     "wandb",
     "mosaicml-streaming",
+    "asparagus",
+]
+
+[tool.uv.sources]
+asparagus = { path = "third_party/asparagus", editable = true }
+
+[tool.uv]
+override-dependencies = [
+    "torch==2.8.0",
+    "torchvision",
+    "huggingface-hub<1.0",
 ]
 
 [tool.setuptools.packages.find]
