@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Convert a smri-fm pretrain checkpoint and run asparagus finetuning on the
-# FOMO26 downstream tasks. Bypasses asp_eval_box_run because it only forwards
-# checkpoint_run_id (no path passthrough); we call asp_finetune_* directly.
+# FOMO26 downstream tasks.
 #
 # Usage:
 #   scripts/eval_fomo26.sh <model_name> <pretrain_checkpoint.pth>
@@ -28,7 +27,6 @@ model_name="$1"
 src_ckpt="$2"
 
 repo="$(git rev-parse --show-toplevel)"
-# shellcheck source=setup_asparagus_env.sh
 source "$repo/scripts/setup_asparagus_env.sh"
 
 asparagus_ckpt="${src_ckpt%.pth}.asparagus.ckpt"
