@@ -26,7 +26,7 @@ Hydra search path. Use `.env` if you want non-default environment variables.
     That step is explained in the [official asparagus guide](https://sid.erda.dk/share_redirect/fmeuvo1EdF/FOMO26_Guide_v1.pdf).
 - [TODO] To reduce the number of necessary steps, the processed data from the previous step will be moved to HF so no local script running is needed.
 
-### 2. Convert the pretrain checkpointß
+### 2. Convert the pretrain checkpoint
 ```python
 from asparagus_bridge.checkpoint import convert_checkpoint
 convert_checkpoint("smri_mae", "runs/mae/checkpoint-last.pth", "runs/mae/asparagus.ckpt")
