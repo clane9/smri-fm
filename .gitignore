@@ -26,6 +26,8 @@ _version.py
 **/data
 **/logs
 output
+datasets/FOMO50K
+*_images
 
 # Local scratch/tmp
 .scratch

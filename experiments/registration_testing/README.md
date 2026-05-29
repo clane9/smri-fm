@@ -19,7 +19,7 @@ ln -s PATH_TO_OPENNEURO_TESTING data/openneuro_testing
 First trying variants of rigid registration implemented directly with [SimpleITK](https://simpleitk.org/).
 
 ```bash
-OFFSET=0 LIMIT=64 VERSION=v1 N_THREADS=1 bash run.sh
+OFFSET=0 LIMIT=64 VERSION=v1 N_THREADS=8 bash run.sh
 OFFSET=0 LIMIT=64 VERSION=v2 N_THREADS=8 bash run.sh
 OFFSET=0 LIMIT=64 VERSION=v3 N_THREADS=8 bash run.sh
 OFFSET=0 LIMIT=64 VERSION=v4 N_THREADS=8 bash run.sh

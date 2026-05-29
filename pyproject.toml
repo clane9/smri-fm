@@ -12,6 +12,7 @@ dependencies = [
     "ipython",
     "jupyter",
     "matplotlib",
+    "flask",
     "nibabel",
     "niwrap",
     "numpy",
@@ -32,6 +33,7 @@ dependencies = [
 
 [project.scripts]
 rigid_registration = "smri_fm.preprocess:rigid_registration_cli"
+smri_viewer = "smri_fm.data_viewer:main"
 
 [project.optional-dependencies]
 
