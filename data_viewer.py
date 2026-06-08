@@ -1,5 +1,6 @@
 import argparse
 import base64
+import functools
 import itertools
 import io
 import random
@@ -11,13 +12,18 @@ from concurrent.futures import ProcessPoolExecutor
 import nibabel as nib
 import numpy as np
 from flask import Flask, jsonify, render_template_string
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
 GRID_CELL_WIDTH = 128  # px min-width of grid cells
 IMAGE_WIDTH = 224
 JPEG_QUALITY = 85
 DEFAULT_BATCH_SIZE = 16
+
+VIEWS = ("sag", "cor", "ax")
+ALL_VIEWS = VIEWS + tuple(f"{v}_mask" for v in VIEWS)
+MASK_COLOR = (255, 80, 80)
+MASK_ALPHA = 0.4
 
 DEFAULT_DATA_DIR = Path("data/FOMO50K")
 DEFAULT_IMAGE_CACHE_DIR = Path("data/FOMO50K_images")
@@ -29,6 +35,8 @@ _batch_size: int = DEFAULT_BATCH_SIZE
 _data_dir: Path = None
 _image_cache_dir: Path = None
 _view: str = "ax"
+_overwrite: bool = False
+_regenerated: set = set()
 
 HTML = f"""<!DOCTYPE html>
 <html>
@@ -91,11 +99,11 @@ HTML = f"""<!DOCTYPE html>
 </html>"""
 
 
-def make_images(nifti_path: Path, view: str = "ax") -> Path | None:
+def make_images(nifti_path: Path, view: str = "ax", overwrite: bool = False) -> Path | None:
     rel = nifti_path.relative_to(_data_dir)
     stem = rel.name.split(".nii")[0]
-    out = {v: _image_cache_dir / rel.parent / f"{stem}_{v}.jpg" for v in ("sag", "cor", "ax")}
-    if out[view].exists():
+    out = {v: _image_cache_dir / rel.parent / f"{stem}_{v}.jpg" for v in ALL_VIEWS}
+    if not overwrite and out[view].exists():
         return out[view]
 
     try:
@@ -122,22 +130,41 @@ def make_images(nifti_path: Path, view: str = "ax") -> Path | None:
         cx, cy = data.shape[0] // 2, data.shape[1] // 2
         cz = int(mask.sum(axis=(0, 1)).argmax())
         planes = {"sag": data[cx, :, :], "cor": data[:, cy, :], "ax": data[:, :, cz]}
+        mask_planes = {"sag": mask[cx, :, :], "cor": mask[:, cy, :], "ax": mask[:, :, cz]}
         # (col_spacing, row_spacing) for each view after RAS reorientation
         spacings = {"sag": (sy, sz), "cor": (sx, sz), "ax": (sx, sy)}
+        label = rel.parts[0]
+        font = ImageFont.load_default()
 
         out[view].parent.mkdir(parents=True, exist_ok=True)
-        for v, plane in planes.items():
-            plane = np.flipud(plane.T)
+        for v in VIEWS:
+            plane = np.flipud(planes[v].T)
+            mplane = np.flipud(mask_planes[v].T)
             h, w = plane.shape
             col_sp, row_sp = spacings[v]
             # scale to fit in square, preserving physical aspect ratio
             scale = IMAGE_WIDTH / max(h * row_sp, w * col_sp)
             new_h = max(1, round(h * row_sp * scale))
             new_w = max(1, round(w * col_sp * scale))
-            img = Image.fromarray(plane).resize((new_w, new_h), Image.LANCZOS)
+            off = ((IMAGE_WIDTH - new_w) // 2, (IMAGE_WIDTH - new_h) // 2)
+
+            tile = Image.fromarray(plane).resize((new_w, new_h), Image.LANCZOS)
             square = Image.new("L", (IMAGE_WIDTH, IMAGE_WIDTH))
-            square.paste(img, ((IMAGE_WIDTH - new_w) // 2, (IMAGE_WIDTH - new_h) // 2))
+            square.paste(tile, off)
+
+            # semi-transparent mask overlay on the original brain
+            mtile = Image.fromarray((mplane * 255).astype(np.uint8)).resize(
+                (new_w, new_h), Image.NEAREST
+            )
+            alpha = Image.new("L", (IMAGE_WIDTH, IMAGE_WIDTH))
+            alpha.paste(mtile.point(lambda p: int(MASK_ALPHA * 255) if p > 127 else 0), off)
+            color = Image.new("RGB", (IMAGE_WIDTH, IMAGE_WIDTH), MASK_COLOR)
+            overlay = Image.composite(color, square.convert("RGB"), alpha)
+
+            ImageDraw.Draw(square).text((3, 2), label, fill=255, font=font)
             square.save(out[v], format="JPEG", quality=JPEG_QUALITY)
+            ImageDraw.Draw(overlay).text((3, 2), label, fill=(255, 255, 255), font=font)
+            overlay.save(out[f"{v}_mask"], format="JPEG", quality=JPEG_QUALITY)
         return out[view]
 
     except Exception as exc:
@@ -157,7 +184,10 @@ def batch():
     while len(images) < _batch_size and attempts < _batch_size * 10:
         attempts += 1
         nifti_path = next(_cycle)
-        img_path = make_images(nifti_path, _view)
+        overwrite = _overwrite and nifti_path not in _regenerated
+        img_path = make_images(nifti_path, _view, overwrite)
+        if overwrite:
+            _regenerated.add(nifti_path)
         if img_path is None:
             continue
         buf = io.BytesIO(img_path.read_bytes())
@@ -166,13 +196,16 @@ def batch():
 
 
 def main():
-    global _cycle, _batch_size, _data_dir, _image_cache_dir, _view
+    global _cycle, _batch_size, _data_dir, _image_cache_dir, _view, _overwrite
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--image-cache-dir", type=Path, default=DEFAULT_IMAGE_CACHE_DIR)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    parser.add_argument("--view", choices=["ax", "cor", "sag"], default="ax")
+    parser.add_argument("--view", choices=list(ALL_VIEWS), default="ax")
+    parser.add_argument(
+        "--no-cache", action="store_true", help="regenerate images, ignoring cached jpgs"
+    )
     parser.add_argument("--prefill-cache", action="store_true")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -198,11 +231,13 @@ def main():
     _data_dir = args.data_dir
     _image_cache_dir = args.image_cache_dir
     _batch_size = args.batch_size
+    _overwrite = args.no_cache
     _cycle = itertools.cycle(volumes)
 
     if args.prefill_cache:
+        worker = functools.partial(make_images, overwrite=args.no_cache)
         with ProcessPoolExecutor(max_workers=8) as pool:
-            for _ in tqdm(pool.map(make_images, volumes, chunksize=64), total=len(volumes)):
+            for _ in tqdm(pool.map(worker, volumes, chunksize=64), total=len(volumes)):
                 pass
         return
 

@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "antspyx",
+    "cloudpathlib",
     "einops",
     "flask",
     "huggingface-hub",
@@ -22,6 +23,7 @@ dependencies = [
     "omegaconf",
     "pandas",
     "pre-commit",
+    "pyarrow",
     "pytest",
     "pyyaml",
     "scikit-learn",
