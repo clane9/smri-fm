@@ -35,8 +35,6 @@ dependencies = [
     "tqdm",
     "wandb",
     "webdataset",
-    "asparagus",
-    "asparagus_preprocessing",
 ]
 
 [dependency-groups]
@@ -45,6 +43,11 @@ dev = [
     "jupyter",
     "pytest",
     "pre-commit",
+]
+
+asparagus = [
+    "asparagus",
+    "asparagus_preprocessing",
 ]
 
 [tool.uv.sources]
