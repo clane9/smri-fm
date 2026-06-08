@@ -12,19 +12,19 @@ dependencies = [
     "antspyx",
     "braceexpand",
     "einops",
+    "flask",
+    "fsspec",
     "huggingface-hub",
-    "ipython",
     "jaxtyping",
-    "jupyter",
     "matplotlib",
     "nibabel",
+    "nilearn",
     "numpy",
     "omegaconf",
     "pandas",
-    "pre-commit",
-    "pytest",
     "pyyaml",
     "scikit-learn",
+    "scikit-image",
     "scipy",
     "seaborn",
     "tabulate",
@@ -37,6 +37,14 @@ dependencies = [
     "webdataset",
     "asparagus",
     "asparagus_preprocessing",
+]
+
+[dependency-groups]
+dev = [
+    "ipython",
+    "jupyter",
+    "pytest",
+    "pre-commit",
 ]
 
 [tool.uv.sources]
@@ -64,3 +72,6 @@ ignore = ["F722"]
 
 [tool.pytest.ini_options]
 norecursedirs = ["third_party", ".scratch"]
+
+[project.scripts]
+fomo300k_viewer = "slow_smri.data.fomo300k_viewer:main"

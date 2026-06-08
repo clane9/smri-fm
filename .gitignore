@@ -49,3 +49,9 @@ CLAUDE.md
 # Slurm outputs
 *.out
 *.err
+
+# Dirty folders
+/datasets/openneuro
+/experiments/dlbs_synthseg
+/experiments/fomo300_filtering
+/experiments/registration_testing
