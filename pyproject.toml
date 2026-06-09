@@ -11,7 +11,9 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "antspyx",
     "braceexpand",
+    "datasets",
     "einops",
+    "fsspec",
     "huggingface-hub",
     "ipython",
     "jaxtyping",
@@ -24,6 +26,7 @@ dependencies = [
     "pre-commit",
     "pytest",
     "pyyaml",
+    "s3fs",
     "scikit-learn",
     "scipy",
     "seaborn",
