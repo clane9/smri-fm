@@ -1,20 +1,16 @@
 # References:
 # capi: https://github.com/facebookresearch/capi/blob/main/model.py
 # timm: https://github.com/huggingface/pytorch-image-models/blob/v1.0.20/timm/models/vision_transformer.py
-# vjepa2: https://github.com/facebookresearch/vjepa2/blob/main/src/models/utils/pos_embs.py
 
-import math
 from functools import partial
 from typing import Type
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from einops import rearrange
 from jaxtyping import Float, Int
-from timm.layers import DropPath, to_2tuple, to_3tuple
+from timm.layers import DropPath
 
 Layer = Type[nn.Module]
 
@@ -30,10 +26,12 @@ class Attention(nn.Module):
         qkv_bias: bool = False,
         proj_bias: bool = False,
         context_dim: int | None = None,
+        causal: bool = False,
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.causal = causal
         context_dim = context_dim or dim
 
         # using separate q, k, v weights so that xavier init uses the correct dim.
@@ -45,7 +43,7 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim, bias=proj_bias)
 
     def extra_repr(self):
-        return f"num_heads={self.num_heads}"
+        return f"num_heads={self.num_heads}, causal={self.causal}"
 
     def forward(
         self,
@@ -61,7 +59,7 @@ class Attention(nn.Module):
         q = self.q(x).reshape(B, N, h, D // h).transpose(1, 2)
         k = self.k(context).reshape(B, M, h, D // h).transpose(1, 2)
         v = self.v(context).reshape(B, M, h, D // h).transpose(1, 2)
-        x = F.scaled_dot_product_attention(q, k, v)
+        x = F.scaled_dot_product_attention(q, k, v, is_causal=self.causal)
         x = x.transpose(1, 2).reshape(B, N, D)
         x = self.proj(x)
         return x
@@ -133,355 +131,46 @@ class Block(nn.Module):
         return x
 
 
-# Patching and position embedding modules
+# Position embedding
 
 
-class Patchify2D(nn.Module):
+class SeparablePosEmbed3D(nn.Module):
     def __init__(
         self,
-        img_size: int | tuple[int, int],
-        patch_size: int | tuple[int, int],
-        in_chans: int = 3,
+        embed_dim: int,
+        grid_size: tuple[int, int, int],
+        unit: float = 1.0,
     ) -> None:
-        super().__init__()
-        self.img_size = to_2tuple(img_size)
-        self.patch_size = to_2tuple(patch_size)
-        self.in_chans = in_chans
-
-        H, W = self.img_size
-        p_h, p_w = self.patch_size
-        self.grid_size = (H // p_h, W // p_w)
-        self.num_patches = math.prod(self.grid_size)
-        self.patch_dim = in_chans * math.prod(self.patch_size)
-
-    def forward(self, x: Float[Tensor, "B C H W"]) -> Float[Tensor, "B N P"]:
-        x = patchify2d(x, self.patch_size)
-        return x
-
-    def unpatchify(self, x: Float[Tensor, "B N P"]) -> Float[Tensor, "B C H W"]:
-        x = unpatchify2d(x, patch_size=self.patch_size, img_size=self.img_size)
-        return x
-
-    def extra_repr(self):
-        return f"{self.img_size}, {self.patch_size}, in_chans={self.in_chans}"
-
-
-class Patchify3D(nn.Module):
-    def __init__(
-        self,
-        img_size: int | tuple[int, int, int],
-        patch_size: int | tuple[int, int, int],
-        in_chans: int = 3,
-    ) -> None:
-        super().__init__()
-        self.img_size = to_3tuple(img_size)
-        self.patch_size = to_3tuple(patch_size)
-        self.in_chans = in_chans
-
-        T, H, W = self.img_size
-        p_t, p_h, p_w = self.patch_size
-        self.grid_size = (T // p_t, H // p_h, W // p_w)
-        self.num_patches = math.prod(self.grid_size)
-        self.patch_dim = in_chans * math.prod(self.patch_size)
-
-    def forward(self, x: Float[Tensor, "B C T H W"]) -> Float[Tensor, "B N P"]:
-        x = patchify3d(x, self.patch_size)
-        return x
-
-    def unpatchify(self, x: Float[Tensor, "B N P"]) -> Float[Tensor, "B C T H W"]:
-        x = unpatchify3d(x, patch_size=self.patch_size, img_size=self.img_size)
-        return x
-
-    def extra_repr(self):
-        return f"{self.img_size}, {self.patch_size}, in_chans={self.in_chans}"
-
-
-class StridedPatchify3D(nn.Module):
-    def __init__(
-        self,
-        img_size: int | tuple[int, int, int],
-        patch_size: int | tuple[int, int, int],
-        in_chans: int = 3,
-        t_stride: int = 2,
-    ) -> None:
-        super().__init__()
-        T, H, W = to_3tuple(img_size)
-        p_t, p_h, p_w = to_3tuple(patch_size)
-        assert (T % t_stride) == (p_t % t_stride) == 0, "invalid t_stride"
-
-        self.img_size = (T, H, W)
-        self.patch_size = (p_t // t_stride, p_h, p_w)
-        self.in_chans = in_chans
-        self.t_stride = t_stride
-
-        self.grid_size = (T // p_t, H // p_h, W // p_w)
-        self.num_patches = math.prod(self.grid_size)
-        self.patch_dim = in_chans * math.prod(self.patch_size)
-
-    def forward(self, x: Float[Tensor, "B C T H W"]) -> Float[Tensor, "B N P"]:
-        x = x[:, :, :: self.t_stride]
-        x = patchify3d(x, self.patch_size)
-        return x
-
-    def unpatchify(self, x: Float[Tensor, "B N P"]) -> Float[Tensor, "B C T H W"]:
-        T, H, W = self.img_size
-        x = unpatchify3d(x, patch_size=self.patch_size, img_size=(T // self.t_stride, H, W))
-        x = torch.repeat_interleave(x, self.t_stride, dim=2)
-        return x
-
-    def extra_repr(self):
-        return (
-            f"{self.img_size}, {self.patch_size}, in_chans={self.in_chans}, "
-            f"t_stride={self.t_stride}"
-        )
-
-
-def patchify2d(x: Tensor, patch_size: tuple[int, int]) -> Tensor:
-    p_h, p_w = to_2tuple(patch_size)
-    # channels first dimension so that we can load weights that use conv patch embed
-    x = rearrange(x, "b c (h p) (w q) -> b (h w) (c p q)", p=p_h, q=p_w)
-    return x
-
-
-def unpatchify2d(
-    x: Tensor,
-    patch_size: tuple[int, int],
-    img_size: tuple[int, int],
-) -> Tensor:
-    B, N, P = x.shape
-    p_h, p_w = to_2tuple(patch_size)
-    H, W = to_2tuple(img_size)
-    x = rearrange(
-        x,
-        "b (h w) (c p q) -> b c (h p) (w q)",
-        h=H // p_h,
-        w=W // p_w,
-        p=p_h,
-        q=p_w,
-    )
-    return x
-
-
-def patchify3d(x: Tensor, patch_size: tuple[int, int, int]) -> Tensor:
-    p_t, p_h, p_w = to_3tuple(patch_size)
-    B, C, T, H, W = x.shape
-    x = rearrange(x, "b c (t u) (h p) (w q) -> b (t h w) (c u p q)", u=p_t, p=p_h, q=p_w)
-    return x
-
-
-def unpatchify3d(
-    x: Tensor,
-    patch_size: tuple[int, int, int],
-    img_size: tuple[int, int, int],
-) -> Tensor:
-    B, N, P = x.shape
-    p_t, p_h, p_w = to_3tuple(patch_size)
-    T, H, W = to_3tuple(img_size)
-    x = rearrange(
-        x,
-        "b (t h w) (c u p q) -> b c (t u) (h p) (w q)",
-        t=T // p_t,
-        h=H // p_h,
-        w=W // p_w,
-        u=p_t,
-        p=p_h,
-        q=p_w,
-    )
-    return x
-
-
-class AbsolutePosEmbed(nn.Module):
-    def __init__(self, embed_dim: int, grid_size: tuple[int, ...]) -> None:
         super().__init__()
         self.embed_dim = embed_dim
         self.grid_size = grid_size
-        self.num_patches = math.prod(grid_size)
+        self.unit = unit
 
-        self.weight = nn.Parameter(torch.empty(self.num_patches, embed_dim))
+        X, Y, Z = grid_size
+        self.weight_x = nn.Parameter(torch.empty(X, embed_dim))
+        self.weight_y = nn.Parameter(torch.empty(Y, embed_dim))
+        self.weight_z = nn.Parameter(torch.empty(Z, embed_dim))
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.trunc_normal_(self.weight, std=0.02)
+        nn.init.trunc_normal_(self.weight_x, std=0.02)
+        nn.init.trunc_normal_(self.weight_y, std=0.02)
+        nn.init.trunc_normal_(self.weight_z, std=0.02)
 
     def forward(
         self,
-        x: Float[Tensor, "B L D"],
-        pos_ids: Int[Tensor, "B L"] | None = None,
-    ) -> Float[Tensor, "B L D"]:
-        x = apply_pos_embed(x, self.weight, pos_ids=pos_ids)
-        return x
-
-    def extra_repr(self):
-        return f"{self.embed_dim}, {self.grid_size}"
-
-
-class SeparablePosEmbed(nn.Module):
-    def __init__(self, embed_dim: int, grid_size: tuple[int, ...]) -> None:
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.grid_size = grid_size
-        self.num_patches = math.prod(grid_size)
-
-        N_t, *grid_size_spatial = grid_size
-        N_s = math.prod(grid_size_spatial)
-        self.weight_spatial = nn.Parameter(torch.empty(1, N_s, embed_dim))
-        self.weight_temporal = nn.Parameter(torch.empty(N_t, 1, embed_dim))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.trunc_normal_(self.weight_spatial, std=0.02)
-        nn.init.trunc_normal_(self.weight_temporal, std=0.02)
-
-    def forward(
-        self,
-        x: Float[Tensor, "B L D"],
-        pos_ids: Int[Tensor, "B L"] | None = None,
-    ) -> Float[Tensor, "B L D"]:
+        x: Float[Tensor, "B N D"],
+        coord: Float[Tensor, "B N 3"],
+    ) -> Float[Tensor, "B N D"]:
         B, N, D = x.shape
-        weight = (self.weight_temporal + self.weight_spatial).flatten(0, 1)  # [N, D]
-        x = apply_pos_embed(x, weight, pos_ids=pos_ids)
+        pos_ids = torch.floor(coord / self.unit).to(torch.int64)
+        x = apply_pos_embed(x, self.weight_x, pos_ids[:, :, 0])
+        x = apply_pos_embed(x, self.weight_y, pos_ids[:, :, 1])
+        x = apply_pos_embed(x, self.weight_z, pos_ids[:, :, 2])
         return x
 
     def extra_repr(self):
-        return f"{self.embed_dim}, {self.grid_size}"
-
-
-class SinCosPosEmbed2D(nn.Module):
-    def __init__(self, embed_dim: int, grid_size: tuple[int, int]) -> None:
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.grid_size = grid_size
-        self.num_patches = math.prod(grid_size)
-
-        weight = get_2d_sincos_pos_embed(embed_dim=embed_dim, grid_size=grid_size)
-        self.weight = nn.Parameter(torch.from_numpy(weight).float(), requires_grad=False)
-
-    def forward(
-        self,
-        x: Float[Tensor, "B L D"],
-        pos_ids: Int[Tensor, "B L"] | None = None,
-    ) -> Float[Tensor, "B L D"]:
-        x = apply_pos_embed(x, self.weight, pos_ids=pos_ids)
-        return x
-
-    def extra_repr(self):
-        return f"{self.embed_dim}, {self.grid_size}"
-
-
-class SinCosPosEmbed3D(nn.Module):
-    def __init__(self, embed_dim: int, grid_size: tuple[int, int, int]) -> None:
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.grid_size = grid_size
-        self.num_patches = math.prod(grid_size)
-
-        N_t, N_h, N_w = grid_size
-        weight = get_3d_sincos_pos_embed(
-            embed_dim=embed_dim,
-            grid_size=(N_h, N_w),
-            grid_depth=N_t,
-            uniform_power=True,
-        )
-        self.weight = nn.Parameter(torch.from_numpy(weight).float(), requires_grad=False)
-
-    def forward(
-        self,
-        x: Float[Tensor, "B L D"],
-        pos_ids: Int[Tensor, "B L"] | None = None,
-    ) -> Float[Tensor, "B L D"]:
-        x = apply_pos_embed(x, self.weight, pos_ids=pos_ids)
-        return x
-
-    def extra_repr(self):
-        return f"{self.embed_dim}, {self.grid_size}"
-
-
-# sincos pos embed utils from vjepa2, but fixed the confusing meshgrid indexing
-
-
-def get_3d_sincos_pos_embed(embed_dim, grid_size, grid_depth, cls_token=False, uniform_power=False):
-    """
-    grid_size: tuple of int of the grid height and width
-    grid_depth: int of the grid depth
-    returns:
-        pos_embed: [grid_depth*grid_height*grid_width, embed_dim] (w/o cls_token)
-                or [1+grid_depth*grid_height*grid_width, embed_dim] (w/ cls_token)
-    """
-    grid_d = np.arange(grid_depth, dtype=float)
-    grid_h = np.arange(grid_size[0], dtype=float)
-    grid_w = np.arange(grid_size[1], dtype=float)
-    grid_d, grid_h, grid_w = np.meshgrid(grid_d, grid_h, grid_w, indexing="ij")
-
-    if not uniform_power:
-        h_embed_dim = embed_dim // 4
-        w_embed_dim = embed_dim // 4
-        d_embed_dim = embed_dim // 2
-    else:
-        h_embed_dim = w_embed_dim = d_embed_dim = int(np.ceil(embed_dim / 6) * 2)
-
-    emb_h = get_1d_sincos_pos_embed_from_grid(h_embed_dim, grid_h)  # (T*H*W, D1)
-    emb_w = get_1d_sincos_pos_embed_from_grid(w_embed_dim, grid_w)  # (T*H*W, D2)
-    emb_d = get_1d_sincos_pos_embed_from_grid(d_embed_dim, grid_d)  # (T*H*W, D3)
-    pos_embed = np.concatenate([emb_d, emb_h, emb_w], axis=1)
-    pos_embed = pos_embed[:, :embed_dim]
-    if cls_token:
-        pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
-    """
-    grid_size: tuple of int of the grid height and width
-    returns:
-        pos_embed: [grid_height*grid_width, embed_dim] (w/o cls_token)
-                or [1+grid_height*grid_width, embed_dim] (w/ cls_token)
-    """
-    grid_h = np.arange(grid_size[0], dtype=float)
-    grid_w = np.arange(grid_size[1], dtype=float)
-    grid_h, grid_w = np.meshgrid(grid_h, grid_w, indexing="ij")
-
-    emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid_h)  # (H*W, D/2)
-    emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid_w)  # (H*W, D/2)
-    pos_embed = np.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
-    if cls_token:
-        pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-def get_1d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
-    """
-    embed_dim: output dimension for each position
-    grid_size: int of the grid length
-    returns:
-        pos_embed: [grid_size, embed_dim] (w/o cls_token)
-                or [1+grid_size, embed_dim] (w/ cls_token)
-    """
-    grid = np.arange(grid_size, dtype=float)
-    pos_embed = get_1d_sincos_pos_embed_from_grid(embed_dim, grid)
-    if cls_token:
-        pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
-    return pos_embed
-
-
-def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
-    """
-    embed_dim: output dimension for each position
-    pos: a list of positions to be encoded: size (M,)
-    returns: (M, D)
-    """
-    assert embed_dim % 2 == 0
-    omega = np.arange(embed_dim // 2, dtype=float)
-    omega /= embed_dim / 2.0
-    omega = 1.0 / 10000**omega  # (D/2,)
-
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
-
-    emb_sin = np.sin(out)  # (M, D/2)
-    emb_cos = np.cos(out)  # (M, D/2)
-
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
-    return emb
+        return f"{self.embed_dim}, {self.grid_size}, unit={self.unit}"
 
 
 def apply_pos_embed(
@@ -495,154 +184,3 @@ def apply_pos_embed(
         weight = weight.gather(1, pos_ids.unsqueeze(-1).expand(-1, -1, D))
     x = x + weight
     return x
-
-
-# (masked) normalization used for MAE target normalization
-
-
-class Normalize(nn.Module):
-    def __init__(
-        self,
-        grid_size: tuple[int, ...],
-        dim: int | tuple[int, ...] | None = -1,
-        eps: float = 1e-6,
-    ) -> None:
-        super().__init__()
-        self.grid_size = grid_size
-        self.dim = dim
-        self.eps = eps
-
-    def forward(
-        self, x: Tensor, mask: Tensor | None = None
-    ) -> tuple[Tensor, tuple[Tensor, Tensor]]:
-        """
-        Normalize input sequence along dim(s) after reshaping to grid.
-        Returns tuple of (x, stats) (where stats = (mean, std))
-        """
-        B, N, D = x.shape
-        x = x.reshape((B, *self.grid_size, D))
-        if mask is not None:
-            mask = mask.reshape((B, *self.grid_size, D))
-            x, mean, std = masked_normalize(x, mask, dim=self.dim, eps=self.eps)
-        else:
-            x, mean, std = normalize(x, dim=self.dim, eps=self.eps)
-        mean = mean.expand_as(x).reshape(B, N, D)
-        std = std.expand_as(x).reshape(B, N, D)
-        x = x.reshape(B, N, D)
-        return x, (mean, std)
-
-    def inverse(self, x: Tensor, stats: tuple[Tensor, Tensor], mask: Tensor | None = None):
-        mean, std = stats
-        x = x * std + mean
-        if mask is not None:
-            x = x * mask
-        return x
-
-    def extra_repr(self):
-        return f"{self.grid_size}, dim={self.dim}"
-
-
-def masked_normalize(
-    x: Tensor,
-    mask: Tensor,
-    dim: int | tuple[int, ...] | None = -1,
-    eps: float = 1e-6,
-) -> tuple[Tensor, Tensor, Tensor]:
-    num_obs = mask.sum(dim=dim, keepdim=True).clamp(min=1)
-    mean = (mask * x).sum(dim=dim, keepdim=True) / num_obs
-    var = (mask * (x - mean) ** 2).sum(dim=dim, keepdim=True) / num_obs
-    std = (var + eps) ** 0.5
-    x = mask * (x - mean) / std
-    return x, mean, std
-
-
-def normalize(
-    x: Tensor,
-    dim: int | tuple[int, ...] | None = -1,
-    eps: float = 1e-6,
-) -> tuple[Tensor, Tensor, Tensor]:
-    mean = x.mean(dim=dim, keepdim=True)
-    var = torch.var(x, dim=dim, keepdim=True, unbiased=False)
-    std = (var + eps) ** 0.5
-    x = (x - mean) / std
-    return x, mean, std
-
-
-class PCANormalize(nn.Module):
-    """
-    a normalization module that residualizes the input wrt a set of fixed pca components.
-    """
-
-    components: Tensor
-
-    def __init__(
-        self,
-        components: Tensor,
-        img_size: tuple[int, int, int],
-        patch_size: tuple[int, int, int],
-    ):
-        super().__init__()
-        assert img_size[-2:] == components.shape[-2:], (
-            f"invalid components {tuple(components.shape)}"
-        )
-        assert len(img_size) == len(patch_size) == 3, "only 3D inputs supported"
-        self.img_size = img_size
-        self.patch_size = patch_size
-        components = torch.as_tensor(components, dtype=torch.float32)
-        self.register_buffer("components", components)
-
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> tuple[Tensor, tuple[Tensor, ...]]:
-        B, N, D = x.shape
-        x = unpatchify3d(x, self.patch_size, self.img_size)  # [B, C, T, H, W]
-        coef = torch.einsum("bcthw,nhw->bctn", x, self.components)
-        recon = torch.einsum("bctn,nhw->bcthw", coef, self.components)
-        # keep residual
-        x = x - recon
-        # renormalize
-        if mask is not None:
-            mask = unpatchify3d(mask, self.patch_size, self.img_size)
-            x, mean, std = masked_normalize(x, mask, dim=(3, 4))
-        else:
-            x, mean, std = normalize(x, dim=(3, 4))
-        mean = patchify3d(mean.expand_as(x), self.patch_size)
-        std = patchify3d(std.expand_as(x), self.patch_size)
-        x = patchify3d(x, self.patch_size)
-        recon = patchify3d(recon, self.patch_size)
-        return x, (coef, recon, mean, std)
-
-    def inverse(self, x: Tensor, stats: tuple[Tensor, ...], mask: Tensor | None = None):
-        coef, recon, mean, std = stats
-        x = x * std + mean  # unnormalize
-        x = x + recon  # add back pca projection
-        if mask is not None:
-            x = x * mask
-        return x
-
-    def extra_repr(self):
-        return f"{self.components.shape[0]}"
-
-
-class GaussianNoise(nn.Module):
-    """
-    basic gaussian noising module. mixes input with gaussian noise
-    x = (1 - t) * x + t * z
-    with t ~ [0, sigma]
-    """
-
-    def __init__(self, sigma: float = 0.5):
-        super().__init__()
-        assert 0 <= sigma <= 1, f"invalid sigma {sigma}; expected in [0, 1]"
-        self.sigma = sigma
-
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
-        B, *shape = x.shape
-        if not self.training or self.sigma <= 0:
-            return x
-        t = torch.rand((B,) + len(shape) * (1,), dtype=x.dtype, device=x.device) * self.sigma
-        x = (1 - t) * x + t * torch.randn_like(x)
-        if mask is not None:
-            x = x * mask
-        return x
-
-    def extra_repr(self):
-        return f"sigma={self.sigma}"
