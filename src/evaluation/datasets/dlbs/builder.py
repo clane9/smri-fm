@@ -51,13 +51,12 @@ def _generate_dlbs_t1w_samples(paths: list[str], columns: tuple[str]):
         sub = path.split("/")[0]
         row = participants.loc[sub, :].to_dict()
         buf = fs.cat_file(f"{ROOT}/{path}")
-        img = load_nifti_bytes(buf)
 
         record = {
             "participant_id": sub,
             **{col: row[col] for col in columns},
             "path": path,
-            "nifti": img,
+            "nifti": {"path": None, "bytes": buf},
         }
         yield record
 
@@ -67,14 +66,6 @@ def get_dlbs_t1w_filelist() -> list[str]:
     with files.joinpath("dlbs_wave1_t1w_images.txt").open() as f:
         paths = f.read().strip().splitlines()
     return paths
-
-
-def load_nifti_bytes(buf: bytes):
-    # gzip magic number, see https://stackoverflow.com/a/76055284/9534390 or "Magic number" on https://en.wikipedia.org/wiki/Gzip
-    if buf[:2] == b"\x1f\x8b":
-        buf = gzip.decompress(buf)
-    img = nib.Nifti1Image.from_bytes(buf)
-    return img
 
 
 if __name__ == "__main__":
