@@ -137,8 +137,8 @@ class Block(nn.Module):
 class SeparablePosEmbed3D(nn.Module):
     def __init__(
         self,
-        embed_dim: int,
         grid_size: tuple[int, int, int],
+        embed_dim: int,
         unit: float = 1.0,
     ) -> None:
         super().__init__()
