@@ -192,16 +192,19 @@ def train(args: argparse.Namespace) -> None:
     logger.info(f"dataset: {len(rows)} subjects, {sum(r['label'] for r in rows)} positive")
 
     method = Task1Method(cfg)
+    start = time.perf_counter()
     y, oof = leave_one_out(rows, method)
+    run_time = time.perf_counter() - start
     summary = score(y, oof)
 
     # the shipped head sees all n subjects, so it is not any of the models scored above
     method.fit(rows)
     method.save(run_dir / "model")
 
-    record = {"name": cfg.name, **summary}
+    record = {"name": cfg.name, **summary, "run_time": round(run_time, 1)}
     (run_dir / "metrics.json").write_text(json.dumps(record) + "\n")
-    logger.info("result: " + "  ".join(f"{k}={v:.4f}" for k, v in summary.items()))
+    scores = "  ".join(f"{k}={v:.4f}" for k, v in summary.items())
+    logger.info(f"result: {scores}  ({run_time:.0f}s)")
 
 
 def predict(args: argparse.Namespace) -> None:
