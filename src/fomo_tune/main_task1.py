@@ -27,7 +27,6 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from fomo_tune.backbone import load_backbone
-from fomo_tune.datasets import load_fomo_task1
 from fomo_tune.utils import git_sha, set_seed, setup_logging
 
 logger = logging.getLogger("fomo_tune")
@@ -37,6 +36,7 @@ Images = dict[str, nib.Nifti1Image]
 
 @dataclass
 class Config:
+    task: str = "task1"
     ckpt_path: str = (
         "/data/mihir-stuff/smri-pretrained/pretrain_full_90_10_h100/checkpoint-last.pth"
     )
@@ -174,6 +174,9 @@ def score(
 
 
 def train(args: argparse.Namespace) -> None:
+    # imported here, not at the top, so the container needs no dataset stack to run `predict`
+    from fomo_tune.datasets import load_fomo_task1
+
     cfg = OmegaConf.merge(OmegaConf.structured(Config), OmegaConf.from_dotlist(args.overrides))
     run_dir = Path(cfg.output_root) / cfg.name
     run_dir.mkdir(parents=True, exist_ok=True)

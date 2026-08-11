@@ -16,6 +16,7 @@ people who won't get the eval suite.
 | `backbone.py` | core, **frozen**. `load_backbone(ckpt_path) -> (SmriMaeBackbone, SmriMaeTransform)`. Frozen sMRI MAE encoder; the transform canonicalizes to RAS, rescales to 1mm, fits to the pretraining shape, z-scores in a mean-threshold brain mask. |
 | `utils.py` | core. `set_seed`, `git_sha`, `setup_logging`. |
 | `main_task<k>.py` | shell. One task, end to end. Task 1 is the worked example; copy it. |
+| `build.py` + `Apptainer.def` | shell. Package a run dir into the challenge `.sif`. Shared by every task. |
 
 `datasets.py` and `backbone.py` are settled and their caches are warm. Treat them as read-only:
 new work goes in `main_task<k>.py`. If one of them genuinely needs to change, that is a
@@ -60,7 +61,8 @@ It writes `config.yaml`, `log.txt`, `metrics.json`, and `model/` into `{output_r
 
 ## Status
 
-Task 1 is drafted and verified. Tasks 3 and 5 are next. **Tasks 2 and 4 are tabled** — both are
+Task 1 is drafted, verified, and packaged — its container passes the challenge validator. Tasks 3
+and 5 are next. **Tasks 2 and 4 are tabled** — both are
 segmentation, both need `predict` to emit a nifti on the input grid, and neither is worth opening
 until the classification and regression tasks are settled.
 
@@ -137,16 +139,80 @@ deltas you chase will be inside it. `.claude/NOTES.md` thread 1 has the longer a
 
 ## Submission
 
-Not built yet. The intended shape, which `save`/`load` already assumes:
+`build.py` packages a run dir into the `.sif` the challenge wants. One command, taking the run dir
+the shipped head was saved into:
+
+```bash
+uv run python -m fomo_tune.build output/fomo_tune/task1_dwi
+```
+
+It stages `/app`, then builds from there:
 
 ```
-/app/predict.py          # shim: calls fomo_tune.main_task1 predict
+/app/predict.py          # shim: calls fomo_tune.main_task<k> predict
 /app/model/config.yaml   # from the run dir
 /app/model/head.joblib   # from the run dir
-/app/model/backbone.pth  # copied at build time, --ckpt-path points here
+/app/model/backbone.pth  # stripped checkpoint, --ckpt-path points here
 ```
 
-The run dir deliberately does *not* carry backbone weights — that checkpoint is 3.7G and would be
+**Both `build.py` and `Apptainer.def` are shared across tasks**, which they can be because nothing
+in staging or in the dependency list is task-specific. The one thing that does vary is the module
+the shim imports, and that comes from `task` in the run's saved config — so a run dir knows which
+task it belongs to, and `build.py` never needs telling.
+
+`predict.py` is **generated at build time** rather than checked in. It is eight lines whose whole
+meaning is the container layout staged around it, so there is nowhere outside a container to run
+it. This does not weaken the point above about `predict` not being written at packaging time: the
+logic still lives in `main_task<k>.py`, exercised once per fold, and the shim only picks the
+subcommand and two paths.
+
+**`Apptainer.def` is not buildable where it sits.** Its `%files` paths are relative to the build
+cwd, which is the staging dir. Pointing `apptainer build` at it in the repo fails confusingly; go
+through `build.py`.
+
+The run dir deliberately does *not* carry backbone weights — that checkpoint is 3.9G and would be
 copied on every run. `--ckpt-path` overrides what `config.yaml` recorded, so the saved config stays
-a faithful record of what trained rather than being rewritten at build time. Containers must be
-Apptainer `.sif` with `predict.py` at `/app/predict.py`; see `docs/fomo_submission.md`.
+a faithful record of what trained rather than being rewritten at build time.
+
+**The staged checkpoint is stripped to `model` and `args`**, which is 3.9G → 1.3G because the rest
+is optimizer state inference never reads. `load_backbone` needs no change for this, and `predict`
+gives a bit-identical probability either way (0.524739 on `sub-20`, checked on GPU).
+
+**The base image is `python:3.11-slim`, not a CUDA image.** The PyPI torch wheel *is* the cu128
+build and vendors the whole CUDA userspace as `nvidia-*` packages, so all the container needs from
+the host is the driver, which `--nv`/`--nvccli` binds in. That keeps the SIF at 5.3G (4.0G of
+image, 1.3G of weights) against roughly double for `pytorch/pytorch` and far more for NGC.
+Versions are pinned to the training environment
+mostly so `head.joblib` unpickles against the numpy/sklearn that wrote it.
+
+Apptainer caches the bootstrap layers but **always re-runs `%post`**, so every build re-downloads
+~3G of wheels. If that gets annoying, bake a deps-only base SIF and `Bootstrap: localimage` off it.
+
+### Validating
+
+`third_party/container-validator` is the challenge's own validator, test niftis included:
+
+```bash
+python third_party/container-validator/container_validator/validate.py \
+    --task task1 --sif output/fomo_tune/task1_dwi/task1.sif
+```
+
+It runs `python /app/predict.py --flair /input/… --adc … --dwi … --swi … --output /output/<sid>.txt`
+inside an `apptainer instance` with `/input`, `/output` and `/tmp` bound — which is exactly the
+shim's contract, so nothing in `predict.py` is guessing at the interface.
+
+One thing it does that is easy to miss: it takes GPU via `--nvccli` rather than `--nv`, and one of
+its tests runs `nvidia-smi -L` **inside** the container. `python:3.11-slim` ships no `nvidia-smi`,
+so that test passes only because `--nvccli` injects the host one — a CUDA base image would hide
+that dependency rather than remove it.
+
+**The `task1_dwi` container passes all 20 validator tests**, and `predict` inside it returns
+0.524739 on `sub-20`, identical to the same call outside the container. So the packaging is
+verified end to end, not just built.
+
+**Run it on a compute node with apptainer, which as of 2026-08-11 means `n-6`** — `salloc
+--nodelist=n-6`. The other nodes fail the validator's preflight. The login node has apptainer but
+no driver, and
+`predict` there dies inside `can_use_cudnn_attention` — the jagged-SDPA path reaches into CUDA even
+when the tensors are on CPU, so a driver-less host fails at the forward pass rather than falling
+back. That is the CPU gap worth remembering; it is not a container problem.
