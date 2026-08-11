@@ -66,3 +66,4 @@ Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
 ## Harness
 
 - [memory-lives-in-the-repo](memory-lives-in-the-repo.md) — why memory is project-local, and what the trade-off is.
+- [sif-builds-need-apptainers-apparmor-profile](sif-builds-need-apptainers-apparmor-profile.md) — userns is blocked; only the login node builds, only `n-6` runs.
