@@ -40,7 +40,9 @@ Task1Method.load(model_dir, **overrides)
 the CI. No repeats, no stratification; the bootstrap is the only variance estimate. Splitting is
 per-task but fixed within a task — leave-one-out where n is tiny (task 1, n=21), **20-fold** where
 it isn't (tasks 3 and 5), which is close enough to LOO without paying for 494 refits. Once a task's
-scheme is set, hold it or scores stop being comparable across iterations.
+scheme is set, hold it or scores stop being comparable across iterations. That is also why
+`cross_validate` seeds its shuffle at 0 rather than from `cfg.seed`: the folds are part of the
+protocol, so tuning the run's seed must not silently redraw them.
 
 **Two entrypoints.** `train` runs the protocol then fits a head on all subjects and saves it;
 `predict` is the challenge CLI. Both go through `Method.predict`, which is why every fold
@@ -61,18 +63,30 @@ It writes `config.yaml`, `log.txt`, `metrics.json`, and `model/` into `{output_r
 
 ## Status
 
-Task 1 is drafted, verified, and packaged — its container passes the challenge validator. Tasks 3
-and 5 are next. **Tasks 2 and 4 are tabled** — both are
+Tasks 1, 5 and 3 are drafted and verified. Task 1 is also packaged — its container passes the
+challenge validator; 5 and 3 have not been built yet. **Tasks 2 and 4 are tabled** — both are
 segmentation, both need `predict` to emit a nifti on the input grid, and neither is worth opening
 until the classification and regression tasks are settled.
 
-`vitl_fomo300`, dwi_b1000 only, n=21: **AUROC 0.990 [0.944, 1.000]**, about 25s wall on one H100.
-The earlier probe sweep got 0.954 [0.861, 1.000] on the same checkpoint
-(`experiments/eval_global_0728`), so this roughly reproduces — the gap is LOO vs 5×5 stratified CV,
+All three on `vitl_fomo300`, one H100, wall being the cross-validation loop:
+
+| run | result | wall |
+|---|---|---|
+| `task1_dwi`, dwi_b1000, n=21, LOO | AUROC **0.990** [0.944, 1.000] | 25s |
+| `task5_t1w`, t1w, n=48, 20-fold | AUROC **0.984** [0.953, 1.000] | 73s |
+| `task3_t1w`, t1w, n=494, 20-fold | r **0.962** [0.956, 0.968], MAE **3.71y** [3.45, 3.97] | 260s |
+
+**Task 3's row is one fold-seed stale.** It was measured before `cross_validate` froze its shuffle
+at 0, so it is a 20-fold run with `random_state=4466`. Task 1 (LOO) and task 5 are current. The
+re-run is cheap — 260s on a GPU — it just has not been done. Expect a shift of the same order task
+5 saw when its folds moved (0.948 → 0.984, i.e. inside the CI but not negligible).
+
+Task 1's earlier probe sweep got 0.954 [0.861, 1.000] on the same checkpoint
+(`experiments/eval_global_0728`), so it roughly reproduces — the gap is LOO vs 5×5 stratified CV,
 one interpolation instead of two, and a head selected on AUROC instead of balanced accuracy.
 
-Two checks worth repeating per task (`.claude/scratch/verify_task1.py` did both, though the
-on-disk niftis below make the first one easier than it was there):
+Two checks worth repeating per task — `.claude/scratch/verify_task1.py` and
+`.claude/scratch/verify_task35.py <k>` do both:
 - features are **bit-identical** whether the nifti comes from the HF dataset wrapper or from
   `nib.load` off disk, so CV numbers transfer to the container
 - the `predict` CLI agrees with the in-process method
@@ -84,19 +98,20 @@ Counts and modalities, read from the local zips:
 | Task | n | Inputs | Output | Split | Notes |
 |---|---|---|---|---|---|
 | 1 infarct | 21 | adc, dwi_b1000, flair (+t2s/swi) | probability | LOO | done |
-| 5 polymicrogyria | 48 | t1w | probability | 20-fold | **do this one next** |
-| 3 brain age | 494 | t1w | age in years | 20-fold | regression: RidgeCV head, scored by **Pearson r and MAE** — `score` returns both, each with its own bootstrap CI |
+| 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
+| 3 brain age | 494 | t1w | age in years | 20-fold | done — RidgeCV head, scored by **Pearson r and MAE**, each with its own bootstrap CI |
 | 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | — | tabled |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 
-Task 5 is the cheapest next step: same protocol shape, same head, one modality, AUROC again, and
-the only real change is the split.
+Tasks 5 and 3 diverge from task 1 only where that table says. `cross_validate` over a shuffled
+`KFold` replaces `leave_one_out`; both take one modality, so `features` loses the
+concat-over-modalities loop and `Config` loses `modalities`; the challenge CLI flag is `--t1` for
+both, and it is `--t1` for task 3 too even though the file in the zip is `t1w.nii.gz`.
 
-Task 3 is the first regression, so the head and the metrics both change. Two things task 1's
-`score` won't hand you: it returns a single metric, and it guards the bootstrap by skipping
-resamples with fewer than two distinct labels. For regression, drop that guard — the analogous
-degenerate case is a resample with no spread in `y`, where Pearson r is undefined rather than
-merely unstable.
+Task 3 is the first regression, so its `score` loops over the two metrics rather than returning
+one, and it drops task 1's guard against bootstrap resamples with fewer than two distinct labels.
+The analogous degenerate case for regression is a resample with no spread in `y`, where Pearson r
+is undefined rather than merely unstable — at n=494 it does not happen.
 
 When tasks 2 and 4 come back: `predict` must write a nifti on the input's grid, and the method
 needs localized features rather than a pooled vector — `backbone.forward` returns `patch_coords`
@@ -120,6 +135,11 @@ uv run python -m fomo_tune.main_task1 predict \
 Task 5 breaks the naming: `Task_5/preprocessed/sub_01/ses_01/t1.nii.gz` — underscores throughout,
 and `t1` not `t1w`. `datasets.py` already handles it; anything you write by hand won't.
 
+```bash
+uv run python -m fomo_tune.main_task5 predict --model-dir output/fomo_tune/task5_t1w/model \
+    --t1 data/fomo_eval/Task_5/preprocessed/sub_01/ses_01/t1.nii.gz --output /tmp/prob.txt
+```
+
 **Volumes are wildly anisotropic.** Task 1's DWI is 0.46×0.46×**5.6**mm, so the transform
 upsamples z by 5.6× to reach 1mm iso. Nothing is wrong, but don't read the 1mm grid as real
 resolution.
@@ -130,7 +150,8 @@ substitutes a mean-intensity threshold, which keeps both. Known fidelity gap —
 
 **Probabilities are not calibrated.** `LogisticRegressionCV` on ~20 samples × 1024 features shrinks
 hard; task 1's out-of-fold probabilities all land in 0.48–0.52 with near-perfect ranking. Fine for
-AUROC, which is what the challenge scores, but don't read them as probabilities.
+AUROC, which is what the challenge scores, but don't read them as probabilities. Task 5's do span
+0–1, which is n=48 rather than n=21 and not evidence of calibration.
 
 **n is tiny, so the CI is the result.** Task 1's is ~0.06 wide at the top of the range. Most tuning
 deltas you chase will be inside it. `.claude/NOTES.md` thread 1 has the longer argument.

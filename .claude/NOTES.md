@@ -13,6 +13,17 @@ Two independent frozen backbones landing under 0.5 rather than scattering around
 labels, not at noise. It currently contributes a cell to every model's aggregate. Decide whether to
 fix, drop, or exclude from the aggregate.
 
+**13. FOMO tasks 1, 3 and 5 all score too well, and nobody has audited why (2026-08-11, Connor).**
+AUROC 0.990 (task 1, n=21), 0.984 (task 5, n=48), and r=0.962 / MAE 3.71y (task 3, n=494). The
+last is near published brain-age SOTA off a frozen encoder and a ridge, which is the one hardest
+to dismiss as small-n luck. Checked already and clean: folds are subject-level, one session per
+subject, and `RidgeCV`/`LogisticRegressionCV` select their hyperparameter inside the training fold
+only. Not yet checked: whether the challenge cohorts carry a confound the pooled feature reads
+off directly (site, scanner, FOV), and whether task 1's and task 5's labels correlate with
+something trivial. Worth a dumb-baseline pass — random features and an intensity-histogram head —
+before any of these numbers are quoted anywhere. Nb thread 1 says task 1's *earlier* probe scored
+*below* chance on the same data, which is the opposite failure and may be the same root cause.
+
 **2. The aggregate columns average over tasks that separate nothing (2026-07-31).** ABIDE,
 ADHD-200 and CNP-ADHD sit at chance for every model *including* random features, so win rate and
 mean rank in `experiments/eval_global_0728/figures/table.md` are computed over roughly five
