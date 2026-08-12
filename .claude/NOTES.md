@@ -84,7 +84,11 @@ agree — scoring was always in-brain — but it can cut the positive count, and
 sitting in bright CSF is exactly the case that would go sub-mean.
 
 **Next step: measure the in-mask foreground fraction per seg task** (datasets are cached, so it is
-quick). Near 1 means the numbers are honest; low means the mask is the problem. Worth settling
+quick). Near 1 means the numbers are honest; low means the mask is the problem. **Measured for
+fomo_task2 on 2026-08-12** (`experiments/explore_fomo_task2`): ~1.0 on both modalities, worst
+subject 0.92, so reading (b) is dead for that task. That was through `fomo_tune`'s transform,
+which applies the same `x > x.mean()` rule but on the resampled 1mm grid rather than the native
+one, so it does not strictly settle the probe's own numbers — and says nothing about tasks 1 or 4. Worth settling
 before the real backbones' results land on top of it. Note a class falling *entirely* out of mask
 across all subjects trips the "classes absent" assert, so that end of the failure is loud.
 
