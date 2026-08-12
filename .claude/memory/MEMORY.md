@@ -60,6 +60,7 @@ Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
 - [synthseg-no-crop-by-default](synthseg-no-crop-by-default.md) — deliberate match to upstream; the stale help string says otherwise.
 - [synthseg-pooling-masks-padding](synthseg-pooling-masks-padding.md) — scan occupies 24-99% of the padded volume; mask before pooling.
 - [synthseg-integration](synthseg-integration.md) — fork, cost profile, TF32 buys nothing, not an `nn.Module`.
+- [smri-mae-patch-ids-index-the-grid](smri-mae-patch-ids-index-the-grid.md) — a token's exact voxel block, no KD-tree needed; filter by `token_mask` first.
 - [smri-mae-axis-order](smri-mae-axis-order.md) — native RAS is right, the transpose was measured wrong, flag deleted.
 - [smri-mae-checkpoint](smri-mae-checkpoint.md) — path, `mmap=True`, the `decoding` kwarg that must be filtered.
 - [smri-mae-preprocessing-gap](smri-mae-preprocessing-gap.md) — the eval transform's brain mask is a stand-in; skull and neck survive.

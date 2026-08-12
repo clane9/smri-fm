@@ -33,6 +33,20 @@ on 2026-08-12** ahead of that check, deliberately: Connor's plan is to reassess 
 back far from the top. Two of three attempts remain. Nb thread 1 says task 1's *earlier* probe
 scored *below* chance on the same data, which is the opposite failure and may share a root cause.
 
+**14. FOMO task 2 has a first baseline, awaiting review and a revision (2026-08-12).**
+`main_task2.py` is committed and its geometry is verified, but the run lives in
+`.claude/scratch/fomo_tune_draft/task2_draft` — **no experiment dir, not packaged, no container**.
+Flair only, LOO over 23, **Dice 0.187 [0.096, 0.283]**, against the eval seg probe's 0.1228
+[0.066, 0.191] on the same task (`experiments/eval_seg_0806`, different protocol, so not a
+controlled comparison).
+
+The decomposition is the useful part: ceiling **0.563** -> oracle threshold **0.266** -> achieved
+**0.187**, so feature quality costs 0.30 and threshold selection 0.08, while the 8mm tessellation
+costs comparatively little. 12 of 23 subjects score exactly 0 and for 8 of them no threshold would
+have helped. Next candidates: a per-subject adaptive operating point (bounded at +0.08) and
+multi-block features (unbounded). See `.claude/memory/fomo-task2-seg-ideas-deferred.md` and
+`.claude/scratch/task2_draft_report.md`.
+
 **2. The aggregate columns average over tasks that separate nothing (2026-07-31).** ABIDE,
 ADHD-200 and CNP-ADHD sit at chance for every model *including* random features, so win rate and
 mean rank in `experiments/eval_global_0728/figures/table.md` are computed over roughly five

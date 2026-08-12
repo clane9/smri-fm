@@ -90,9 +90,11 @@ one interpolation instead of two, and a head selected on AUROC instead of balanc
 Three checks worth repeating per task, all scripted in `.claude/scratch/` (untracked, so they are
 local to this clone):
 
-- `verify_task1.py`, `verify_task35.py <k>` — features are **bit-identical** whether the nifti
-  comes from the HF dataset wrapper or from `nib.load` off disk, and the `predict` CLI agrees with
-  the in-process method
+- `verify_task1.py`, `verify_task35.py <k>`, `verify_task2.py` — features are **bit-identical**
+  whether the nifti comes from the HF dataset wrapper or from `nib.load` off disk, and the
+  `predict` CLI agrees with the in-process method. Task 2's also checks the written mask is on the
+  input grid with labels `{0, 1}`; `check_task2_geometry.py` covers its resampler on CPU, and
+  `task2_ceiling.py` computes the per-subject Dice ceiling, which needs no backbone
 - `predict_all.py` + `compare_container.py` — the container reproduces the host **bit-identically**
   across all 563 subjects, and the in-sample score is sane. Task 3's in-sample MAE is 2.28y against
   3.69y cross-validated; that ~1.4y of optimism is what a ridge on 1024 features at n=494 should
