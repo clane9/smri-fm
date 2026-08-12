@@ -63,8 +63,8 @@ and writes `config.yaml`, `log.txt`, `metrics.json` and `model/` into `{output_r
 ## Status
 
 Tasks 1, 5 and 3 are complete: verified, packaged, and passing the challenge validator.
-**Tasks 2 and 4 are tabled** — both are segmentation, both need `predict` to emit a nifti on the
-input grid, and neither is worth opening until the classification and regression tasks are settled.
+**Task 2 is a first draft** — it runs end to end and its geometry is verified, but it has no
+recorded run in an experiment dir and is not packaged. **Task 4 is still tabled.**
 
 `experiments/fomo_tune_baseline`, `vitl_fomo300`, one H100:
 
@@ -107,7 +107,7 @@ local to this clone):
 | 1 infarct | 21 | adc, dwi_b1000, flair (+t2s/swi) | probability | LOO | done |
 | 5 polymicrogyria | 48 | t1w | probability | 20-fold | done |
 | 3 brain age | 494 | t1w | age in years | 20-fold | done — RidgeCV head, **Pearson r and MAE**, each with its own bootstrap CI |
-| 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | — | tabled |
+| 2 meningioma | 23 | dwi_b1000, flair (+t2s/swi) | mask, input grid | LOO | drafted — flair only, per-subject **Dice** |
 | 4 trigeminal | 40 | t2w | mask, labels 1=nerve 2=vessel | — | tabled |
 
 The challenge CLI flag is `--t1` for tasks 3 and 5 both, including task 3, whose file in the zip is
@@ -117,10 +117,17 @@ Task 3 is the only regression, so its `score` drops task 1's guard against boots
 fewer than two distinct labels. The analogous degenerate case is a resample with no spread in `y`,
 where Pearson r is undefined rather than merely unstable — at n=494 it does not happen.
 
-When tasks 2 and 4 come back: `predict` must write a nifti on the input's grid, and the method
-needs localized features rather than a pooled vector — `backbone.forward` returns `patch_coords`
-in world mm for exactly that. Task 4's label order (1=nerve, 2=vessel) is still a guess and needs
-confirming against the challenge data before per-class numbers mean anything.
+Task 4's label order (1=nerve, 2=vessel) is still a guess and needs confirming against the
+challenge data before per-class numbers mean anything.
+
+Task 2 is the only one whose `predict` returns a nifti rather than a number, and the only one
+needing localized features. It does not use `patch_coords`: `patch_ids` indexes the regular
+26x30x26 patch grid directly, so each token's 8x8x8 block is known exactly and nothing has to be
+matched by nearest neighbour. Its head predicts each patch's **tumour fraction** — two weighted
+rows per patch, `t_i` positives and `512 - t_i` negatives, which is voxel-level logistic
+regression collapsed losslessly, so no voxel is ever subsampled. The threshold on that fraction is
+selected by an inner 5-fold inside each training fold, never on the training subjects' own
+predictions, whose probabilities are over-separated and would put the cut too high.
 
 ## Gotchas
 

@@ -32,6 +32,7 @@ Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
 - [smri-mae-pad-to-multiple-is-inert](smri-mae-pad-to-multiple-is-inert.md) — padded token slots are dropped before the blocks, so it cannot move a number.
 - [no-memory-references-in-code](no-memory-references-in-code.md) — state the fact in the source; keep the rationale in memory, uncited.
 - [dice-ceiling-diagnostic-deferred](dice-ceiling-diagnostic-deferred.md) — separating "too coarse" from "uninformative"; deferred, with the exact formula and the ratio trap.
+- [fomo-task2-seg-ideas-deferred](fomo-task2-seg-ideas-deferred.md) — multi-block, fusion, sub-patch decoder, conv head; the order to try them and the noise budget that sets it.
 - [hf-nifti-wrapper-reorients-wrong](hf-nifti-wrapper-reorients-wrong.md) — use `nifti.canonical_img`, never HF's wrapper.
 - [probe-cost-scales-with-embed-width](probe-cost-scales-with-embed-width.md) — 31s at 1024-d vs 605s at 3840-d.
 - [cv-split-seed-is-a-noise-source](cv-split-seed-is-a-noise-source.md) — 0.036 AUROC at n=48 from the fold shuffle alone; the bootstrap CI does not contain it.
