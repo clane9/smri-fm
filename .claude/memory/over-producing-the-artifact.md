@@ -19,6 +19,14 @@ paragraph of it was already in `src/fomo_tune/README.md`. The tell is that the m
 already — if the README or the code says it, the commit body repeating it is the relocation, not
 context.
 
+Recurred on 2026-08-12 as over-*verification* rather than over-writing: after a three-line addition
+of a timing field across three files, I proposed exercising the new record and log formatting, and
+he cut it with *"should be no need to exercise, it's very minor"*. Same impulse pointed at process
+instead of prose — the size of the check should track the risk of the change, and adding a field to
+a dict carries almost none. Note this is a calibration, not a licence: the container verification
+in the same session was elaborate and he asked for *more* of it, because three leaderboard
+submissions were riding on it.
+
 **Why:** he wants the minimum artifact that does the job — extra explanation is not free, it is
 something he has to read and maintain.
 **How to apply:** default to the smaller version and let him ask for more. Specific forms:

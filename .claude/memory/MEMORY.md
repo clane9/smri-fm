@@ -34,6 +34,7 @@ Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
 - [dice-ceiling-diagnostic-deferred](dice-ceiling-diagnostic-deferred.md) — separating "too coarse" from "uninformative"; deferred, with the exact formula and the ratio trap.
 - [hf-nifti-wrapper-reorients-wrong](hf-nifti-wrapper-reorients-wrong.md) — use `nifti.canonical_img`, never HF's wrapper.
 - [probe-cost-scales-with-embed-width](probe-cost-scales-with-embed-width.md) — 31s at 1024-d vs 605s at 3840-d.
+- [cv-split-seed-is-a-noise-source](cv-split-seed-is-a-noise-source.md) — 0.036 AUROC at n=48 from the fold shuffle alone; the bootstrap CI does not contain it.
 
 ## Datasets and HF
 
@@ -67,3 +68,4 @@ Chronology: `grep -H '  observed:' *.md | sort -t: -k3`.
 
 - [memory-lives-in-the-repo](memory-lives-in-the-repo.md) — why memory is project-local, and what the trade-off is.
 - [sif-builds-need-apptainers-apparmor-profile](sif-builds-need-apptainers-apparmor-profile.md) — userns is blocked; only the login node builds, only `n-6` runs.
+- [verifying-a-submission-container](verifying-a-submission-container.md) — three layers, the symlink bind trap, and the question none of them answers.
