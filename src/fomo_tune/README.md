@@ -127,9 +127,16 @@ needing localized features. It does not use `patch_coords`: `patch_ids` indexes 
 26x30x26 patch grid directly, so each token's 8x8x8 block is known exactly and nothing has to be
 matched by nearest neighbour. Its head predicts each patch's **tumour fraction** — two weighted
 rows per patch, `t_i` positives and `512 - t_i` negatives, which is voxel-level logistic
-regression collapsed losslessly, so no voxel is ever subsampled. The threshold on that fraction is
-selected by an inner 5-fold inside each training fold, never on the training subjects' own
-predictions, whose probabilities are over-separated and would put the cut too high.
+regression collapsed losslessly, so no voxel is ever subsampled.
+
+It is also the only task whose method does not emit the challenge's answer directly.
+`predict_proba` returns a probability volume on the input's grid and `binarize` turns it into a
+mask; `Task2Method.threshold` is chosen by the **protocol**, after leave-one-out, as the single cut
+maximizing mean Dice over the pooled out-of-fold probabilities. That cut is therefore tuned on the
+subjects it is scored on, so `dice` is somewhat inflated — the same way any hyperparameter tuned by
+re-running and reading the score is. Because all postprocessing sits behind `binarize`, the
+protocol can search it without knowing what it does. See
+`.claude/memory/fomo-task2-threshold-chosen-after-the-folds.md`.
 
 ## Gotchas
 

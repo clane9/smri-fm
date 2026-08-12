@@ -1,16 +1,16 @@
 """FOMO task 2: meningioma segmentation, scored by per-subject Dice as the challenge scores it.
 
-`Task2Method` is the part we tune -- features, head, hyperparameters. The protocol below it is
-fixed so scores stay comparable across iterations: leave one subject out, per-subject Dice on the
-subject's own grid, bootstrap subjects for the CI.
+**`Task2Method` is what we tune.** Today: a frozen sMRI MAE over flair, one token per 8mm patch,
+and a logistic head predicting each patch's tumour fraction. `predict_proba` returns that fraction
+as a volume on the input's own grid; the method does not decide where to cut it.
 
-The head predicts, for each patch, the fraction of that patch's voxels that are tumour. Two
-weighted rows per patch -- `t_i` positives and `512 - t_i` negatives -- is voxel-level logistic
-regression over every voxel of every patch, collapsed losslessly, so nothing is subsampled.
+**The protocol is held fixed**, or scores stop being comparable across iterations: leave one
+subject out, Dice at every threshold in a fixed grid, then the single cut maximizing mean Dice
+over the out-of-fold subjects. That cut is tuned on the subjects it is then scored on, so the
+number is somewhat inflated -- as is anything else tuned by re-running and reading it.
 
-`train` runs that protocol then fits and saves a head; `predict` is the challenge contract,
-modality paths in and a mask nifti out. Both go through `Task2Method.predict`, so every fold
-exercises the path the submission will run.
+`train` runs the protocol then fits and saves a head; `predict` is the challenge contract. Both go
+through `Task2Method.predict_proba`, so every fold exercises the path the submission runs.
 """
 
 import argparse
@@ -19,6 +19,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import joblib
 import nibabel as nib
@@ -28,7 +29,6 @@ from einops import reduce, repeat
 from omegaconf import OmegaConf
 from scipy import ndimage
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -38,9 +38,6 @@ from fomo_tune.utils import git_sha, set_seed, setup_logging
 logger = logging.getLogger("fomo_tune")
 
 Images = dict[str, nib.Nifti1Image]
-
-# Probabilities sit near the 2.4e-4 voxel prevalence, so the grid is geometric rather than linear.
-THRESHOLDS = np.logspace(-6, -0.3, 60)
 
 
 @dataclass
@@ -53,8 +50,7 @@ class Config:
     output_root: str = "output/fomo_tune"
     name: str = "task2"
     inverse_reg: float = 1.0
-    n_inner: int = 5
-    largest_component: bool = True
+    largest_component: bool = False
     device: str = "cuda"
     seed: int = 4466
 
@@ -70,66 +66,40 @@ def repack(img: nib.Nifti1Image) -> nib.Nifti1Image:
 def resample_nearest(
     volume: np.ndarray, source_affine: np.ndarray, target_affine: np.ndarray, target_shape: tuple
 ) -> np.ndarray:
-    """`volume` read at every voxel of the target grid, nearest neighbour, zero outside it.
-
-    General over affines rather than assuming the transform's axis-aligned steps, so a volume that
-    is not already RAS costs accuracy nowhere and never silently transposes.
-    """
-    transform = np.linalg.inv(source_affine) @ target_affine
-    grid = np.indices(target_shape, dtype=np.float64)
-    index = np.tensordot(transform[:3, :3], grid, axes=1) + transform[:3, 3].reshape(3, 1, 1, 1)
-    index = np.rint(index).astype(np.int64)
-
-    inside = np.all((index >= 0) & (index < np.array(volume.shape).reshape(3, 1, 1, 1)), axis=0)
-    flat = np.ravel_multi_index(np.where(inside, index, 0), volume.shape)
-    return np.where(inside, volume.reshape(-1)[flat], 0)
+    """`volume` read at every voxel of the target grid, nearest neighbour, zero outside it."""
+    target_to_source = np.linalg.inv(source_affine) @ target_affine
+    matrix = target_to_source[:3, :3]
+    offset = target_to_source[:3, 3]
+    return ndimage.affine_transform(
+        volume, matrix, offset, output_shape=target_shape, order=0, mode="constant", cval=0.0
+    )
 
 
 # ---- method: the part we tune ---------------------------------------------------------------
 
 
+class Patches(NamedTuple):
+    """One subject's kept patches, plus the tumour-voxel count of every patch on the grid."""
+
+    features: np.ndarray  # (n_kept, dim)
+    patch_ids: np.ndarray  # (n_kept,) indices into the flattened patch grid
+    counts: np.ndarray  # (n_patches,)
+
+
 def fit_head(features: np.ndarray, counts: np.ndarray, voxels: int, inverse_reg: float) -> Pipeline:
-    """Logistic regression on the voxels of every patch, collapsed to two weighted rows each.
+    """Voxel-level logistic regression, each patch collapsed to one positive and one negative row.
 
-    Unbalanced on purpose: the fitted probability is then the patch's tumour fraction, which is
-    the quantity the threshold cuts. Balancing would buy conditioning and cost that meaning.
+    Unbalanced on purpose: the fitted probability is then the patch's tumour fraction.
     """
-    positive = counts > 0
-    x = np.concatenate([features, features[positive]])
-    y = np.concatenate([np.zeros(len(features)), np.ones(positive.sum())])
-    weight = np.concatenate([voxels - counts, counts[positive]])
+    has_tumour = counts > 0
+    rows = np.concatenate([features, features[has_tumour]])
+    labels = np.concatenate([np.zeros(len(features)), np.ones(has_tumour.sum())])
+    weights = np.concatenate([voxels - counts, counts[has_tumour]])
 
-    keep = weight > 0
-    clf = LogisticRegression(C=inverse_reg, max_iter=1000)
-    head = make_pipeline(StandardScaler(), clf)
-    head.fit(x[keep], y[keep], logisticregression__sample_weight=weight[keep])
+    keep = weights > 0
+    head = make_pipeline(StandardScaler(), LogisticRegression(C=inverse_reg, max_iter=1000))
+    head.fit(rows[keep], labels[keep], logisticregression__sample_weight=weights[keep])
     return head
-
-
-def selected_patches(
-    probabilities: np.ndarray, threshold: float, grid_size: tuple, largest_component: bool
-) -> np.ndarray:
-    """Patches above the threshold, optionally reduced to their largest connected blob."""
-    selected = probabilities >= threshold
-    if not largest_component or not selected.any():
-        return selected
-    labels, n_components = ndimage.label(selected.reshape(grid_size))
-    if n_components == 1:
-        return selected
-    sizes = np.bincount(labels.reshape(-1))
-    sizes[0] = 0
-    return (labels == sizes.argmax()).reshape(-1)
-
-
-def patch_dice(selected: np.ndarray, counts: np.ndarray, voxels: int) -> float:
-    """Dice of a patch selection against the labels, on the backbone's own 1mm grid.
-
-    Predictions are constant within a patch, so `2 * sum(t_i for i in S) / (|S| * 512 + T)` is the
-    voxel Dice exactly, without building a volume. Used to choose the threshold, not to score.
-    """
-    total = counts.sum()
-    denominator = selected.sum() * voxels + total
-    return float(2 * counts[selected].sum() / denominator) if denominator else 1.0
 
 
 class Task2Method:
@@ -148,14 +118,13 @@ class Task2Method:
         self.img_size = tuple(patchify.img_size)
         self.voxels_per_patch = int(np.prod(self.patch_size))
 
-        self.cache: dict[str, tuple] = {}
+        self.cache: dict[str, Patches] = {}
         self.head = None
         self.threshold = None
 
     @torch.inference_mode()
     def embed(self, images: Images) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Patch features (N, D), their indices into the flattened patch grid, and the affine of
-        the grid they live on. A pure function of the images, so training and inference agree."""
+        """The kept patches' features and grid indices, and the affine of the grid they live on."""
         sample = self.transform(images[self.modality])
         batch = {key: value[None].to(self.device) for key, value in sample.items()}
 
@@ -167,86 +136,40 @@ class Task2Method:
         patch_ids = out["patch_ids"][0][keep].cpu().numpy()
         return features, patch_ids, sample["affine"].numpy()
 
-    def patch_counts(self, seg: nib.Nifti1Image, affine: np.ndarray) -> np.ndarray:
+    def patch_counts(self, seg: nib.Nifti1Image, grid_affine: np.ndarray) -> np.ndarray:
         """Tumour voxels per patch, over the whole grid, in the encoder's flattened order."""
         seg = repack(seg)
         labels = np.asarray(seg.dataobj, dtype=np.float32).round()
-        on_grid = resample_nearest(labels, seg.affine, affine, self.img_size)
+        on_grid = resample_nearest(labels, seg.affine, grid_affine, self.img_size)
         px, py, pz = self.patch_size
         return reduce(on_grid, "(gx px) (gy py) (gz pz) -> (gx gy gz)", "sum", px=px, py=py, pz=pz)
 
-    def probabilities(self, images: Images) -> tuple[np.ndarray, np.ndarray]:
-        """Tumour fraction per patch over the whole grid -- zero where the encoder kept no token,
-        which is a patch with no in-brain voxel -- and the affine of that grid."""
-        features, patch_ids, affine = self.embed(images)
-        grid = np.zeros(int(np.prod(self.grid_size)))
-        grid[patch_ids] = self.head.predict_proba(features)[:, self.positive]
-        return grid, affine
-
-    def training_patches(self, rows: list[dict]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Per subject, the kept patches' features, their grid indices, and the whole grid's
-        tumour-voxel counts. Cached: leave-one-out revisits every subject n times."""
-        for row in rows:
-            if row["subject"] not in self.cache:
-                features, patch_ids, affine = self.embed(row)
-                counts = self.patch_counts(row["seg"], affine)
-                self.cache[row["subject"]] = (features, patch_ids, counts)
-        return [self.cache[row["subject"]] for row in rows]
-
-    def choose_threshold(self, subjects: list[tuple], n_inner: int) -> float:
-        """The cut maximizing mean per-subject Dice on out-of-fold predictions from an inner CV.
-
-        In-sample probabilities are over-separated, so a threshold picked on the training
-        subjects' own predictions sits too high and under-segments everything else.
-        """
-        n_patches = int(np.prod(self.grid_size))
-        dice = np.zeros((len(subjects), len(THRESHOLDS)))
-        folds = KFold(n_splits=n_inner, shuffle=True, random_state=0)
-        for train, test in folds.split(subjects):
-            head = fit_head(
-                np.concatenate([subjects[i][0] for i in train]),
-                np.concatenate([subjects[i][2][subjects[i][1]] for i in train]),
-                self.voxels_per_patch,
-                self.cfg.inverse_reg,
-            )
-            positive = list(head[-1].classes_).index(1)
-            for i in test:
-                features, patch_ids, counts = subjects[i]
-                grid = np.zeros(n_patches)
-                grid[patch_ids] = head.predict_proba(features)[:, positive]
-                dice[i] = [
-                    patch_dice(
-                        selected_patches(
-                            grid, threshold, self.grid_size, self.cfg.largest_component
-                        ),
-                        counts,
-                        self.voxels_per_patch,
-                    )
-                    for threshold in THRESHOLDS
-                ]
-        return float(THRESHOLDS[dice.mean(axis=0).argmax()])
+    def cached_patches(self, row: dict) -> Patches:
+        """Cached: leave-one-out revisits every subject n times."""
+        if row["subject"] not in self.cache:
+            features, patch_ids, grid_affine = self.embed(row)
+            counts = self.patch_counts(row["seg"], grid_affine)
+            self.cache[row["subject"]] = Patches(features, patch_ids, counts)
+        return self.cache[row["subject"]]
 
     def fit(self, rows: list[dict]) -> None:
-        subjects = self.training_patches(rows)
-        self.threshold = self.choose_threshold(subjects, self.cfg.n_inner)
-        self.head = fit_head(
-            np.concatenate([features for features, _, _ in subjects]),
-            np.concatenate([counts[patch_ids] for _, patch_ids, counts in subjects]),
-            self.voxels_per_patch,
-            self.cfg.inverse_reg,
-        )
-        self.positive = list(self.head[-1].classes_).index(1)
+        subjects = [self.cached_patches(row) for row in rows]
+        features = np.concatenate([subject.features for subject in subjects])
+        counts = np.concatenate([subject.counts[subject.patch_ids] for subject in subjects])
+        self.head = fit_head(features, counts, self.voxels_per_patch, self.cfg.inverse_reg)
 
-    def predict(self, images: Images) -> nib.Nifti1Image:
-        """A binary mask on the input's own grid, which is what the challenge scores."""
-        grid, affine = self.probabilities(images)
-        selected = selected_patches(
-            grid, self.threshold, self.grid_size, self.cfg.largest_component
-        )
-        px, py, pz = self.patch_size
+    def predict_proba(self, images: Images) -> nib.Nifti1Image:
+        """Tumour probability per voxel on the input's own grid, constant within each patch."""
+        features, patch_ids, grid_affine = self.embed(images)
+
+        # zero where the encoder kept no token, which is a patch with no in-brain voxel
+        fractions = np.zeros(int(np.prod(self.grid_size)), dtype=np.float32)
+        fractions[patch_ids] = self.head.predict_proba(features)[:, 1]
+
         gx, gy, gz = self.grid_size
-        volume = repeat(
-            selected.astype(np.uint8),
+        px, py, pz = self.patch_size
+        on_grid = repeat(
+            fractions,
             "(gx gy gz) -> (gx px) (gy py) (gz pz)",
             gx=gx,
             gy=gy,
@@ -257,29 +180,42 @@ class Task2Method:
         )
 
         image = repack(images[self.modality])
-        mask = resample_nearest(volume, affine, image.affine, image.shape)
-        return nib.Nifti1Image(mask.astype(np.uint8), image.affine)
+        on_input = resample_nearest(on_grid, grid_affine, image.affine, image.shape)
+        return nib.Nifti1Image(on_input, image.affine)
+
+    def binarize(self, probabilities: np.ndarray, threshold: float) -> np.ndarray:
+        """Probabilities to a mask. All postprocessing lives here, so the protocol can search it
+        by calling this at every candidate threshold rather than knowing what it does."""
+        mask = probabilities >= threshold
+        if not self.cfg.largest_component or not mask.any():
+            return mask
+        blobs, _ = ndimage.label(mask)
+        sizes = np.bincount(blobs.reshape(-1))
+        sizes[0] = 0
+        return blobs == sizes.argmax()
+
+    def predict(self, images: Images) -> nib.Nifti1Image:
+        """A binary mask on the input's own grid, which is what the challenge scores."""
+        assert self.threshold is not None, "threshold is set by `train` or by `load`, not by `fit`"
+        probabilities = self.predict_proba(images)
+        mask = self.binarize(np.asarray(probabilities.dataobj), self.threshold)
+        return nib.Nifti1Image(mask.astype(np.uint8), probabilities.affine)
 
     def save(self, model_dir: Path) -> None:
-        """Everything `load` needs but the backbone weights, which stay wherever `ckpt_path`
-        points -- a few hundred KB, so a run saves one without copying a 3.7G checkpoint."""
+        """Config, head and threshold; the weights stay wherever `ckpt_path` points."""
         model_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(self.cfg, model_dir / "config.yaml")
-        state = {"head": self.head, "positive": self.positive, "threshold": self.threshold}
-        joblib.dump(state, model_dir / "head.joblib")
+        joblib.dump({"head": self.head, "threshold": self.threshold}, model_dir / "head.joblib")
 
     @classmethod
     def load(cls, model_dir: Path, **overrides) -> "Task2Method":
-        """Rebuild a fitted method from `save`. Overrides are Config fields, for what differs
-        between here and the container -- the backbone path, the device."""
+        """Rebuild a fitted method from `save`. Overrides are Config fields: ckpt path, device."""
         cfg = OmegaConf.merge(
             OmegaConf.structured(Config), OmegaConf.load(model_dir / "config.yaml"), overrides
         )
         method = cls(cfg)
         state = joblib.load(model_dir / "head.joblib")
-        method.head = state["head"]
-        method.positive = state["positive"]
-        method.threshold = state["threshold"]
+        method.head, method.threshold = state["head"], state["threshold"]
         return method
 
 
@@ -289,74 +225,83 @@ class Task2Method:
 # challenge hands over all the modalities whether or not a model uses them.
 IMAGE_COLS = ("dwi_b1000", "flair")
 
-
-def dice_score(prediction: np.ndarray, truth: np.ndarray) -> float:
-    denominator = int(prediction.sum()) + int(truth.sum())
-    return 2 * int(np.logical_and(prediction, truth).sum()) / denominator if denominator else 1.0
+# Probabilities sit near the 2.4e-4 voxel prevalence, so the grid is geometric rather than linear.
+THRESHOLDS = np.logspace(-6, -0.3, 60)
 
 
-def leave_one_out(rows: list[dict], method: Task2Method) -> list[dict]:
-    """Out-of-fold mask for every subject, each predicted by a head fit on the other n-1.
+class Curves(NamedTuple):
+    """Everything the protocol reports is a read off these, so no fold is ever recomputed."""
 
-    Alongside the score, two diagnostics: the same subject's Dice at the best threshold anyone
-    could have picked, which bounds what threshold selection can win, and the patch-grid Dice,
-    which should track the native one if the geometry is right.
-    """
-    records = []
+    dice: np.ndarray  # (n_subjects, n_thresholds)
+    predicted_voxels: np.ndarray  # (n_subjects, n_thresholds)
+    true_voxels: np.ndarray  # (n_subjects,)
+
+
+def subject_curves(
+    method: Task2Method, probabilities: np.ndarray, truth: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """One subject's Dice and predicted voxel count at every threshold in THRESHOLDS."""
+    true_voxels = int(truth.sum())
+
+    dice = np.zeros(len(THRESHOLDS))
+    predicted = np.zeros(len(THRESHOLDS))
+    for i, threshold in enumerate(THRESHOLDS):
+        prediction = method.binarize(probabilities, threshold)
+        predicted_voxels = int(prediction.sum())
+        overlap = int(np.logical_and(prediction, truth).sum())
+        denominator = predicted_voxels + true_voxels
+
+        predicted[i] = predicted_voxels
+        dice[i] = 2 * overlap / denominator if denominator else 1.0
+    return dice, predicted
+
+
+def leave_one_out(rows: list[dict], method: Task2Method) -> Curves:
+    """Every subject's threshold curves, predicted by a head fit on the other n-1."""
+    dice, predicted, true = [], [], []
     start = time.perf_counter()
     for row in rows:
         method.fit([r for r in rows if r["subject"] != row["subject"]])
-        images = {key: row[key] for key in IMAGE_COLS}
 
-        prediction = np.asarray(method.predict(images).dataobj) > 0
+        probabilities = method.predict_proba({key: row[key] for key in IMAGE_COLS})
         truth = np.asarray(repack(row["seg"]).dataobj).round() > 0
-        assert prediction.shape == truth.shape, "prediction is not on the label grid"
+        assert probabilities.shape == truth.shape, "probabilities are not on the label grid"
 
-        grid, affine = method.probabilities(images)
-        counts = method.patch_counts(row["seg"], affine)
-        oracle = max(
-            patch_dice(
-                selected_patches(grid, threshold, method.grid_size, method.cfg.largest_component),
-                counts,
-                method.voxels_per_patch,
-            )
-            for threshold in THRESHOLDS
+        subject_dice, subject_predicted = subject_curves(
+            method, np.asarray(probabilities.dataobj), truth
         )
-        chosen = selected_patches(
-            grid, method.threshold, method.grid_size, method.cfg.largest_component
-        )
+        dice.append(subject_dice)
+        predicted.append(subject_predicted)
+        true.append(int(truth.sum()))
 
-        record = {
-            "subject": row["subject"],
-            "dice": dice_score(prediction, truth),
-            "dice_patch": patch_dice(chosen, counts, method.voxels_per_patch),
-            "dice_oracle": oracle,
-            "threshold": method.threshold,
-            "predicted_voxels": int(prediction.sum()),
-            "true_voxels": int(truth.sum()),
-        }
-        records.append(record)
+        best = subject_dice.argmax()
         logger.info(
-            f"fold {len(records)}/{len(rows)} {row['subject']} dice={record['dice']:.3f} "
-            f"(patch {record['dice_patch']:.3f}, oracle {oracle:.3f}) "
-            f"thr={method.threshold:.2e} vox={record['predicted_voxels']}/{record['true_voxels']} "
+            f"fold {len(dice)}/{len(rows)} {row['subject']} best={subject_dice[best]:.3f} "
+            f"at thr={THRESHOLDS[best]:.2e} vox={true[-1]} "
             f"({time.perf_counter() - start:.0f}s)"
         )
-    return records
+    return Curves(np.stack(dice), np.stack(predicted), np.array(true))
 
 
-def score(records: list[dict], seed: int = 0, n_boot: int = 2000, alpha: float = 0.05) -> dict:
-    """Mean per-subject Dice, the challenge metric, plus a percentile CI resampling subjects."""
-    dice = np.array([record["dice"] for record in records])
+def score(curves: Curves, seed: int = 0, n_boot: int = 2000, alpha: float = 0.05) -> dict:
+    """Mean per-subject Dice at the best single threshold, plus a percentile CI over subjects.
+
+    `dice_oracle` lets every subject cut where it likes, which bounds any thresholding rule.
+    """
+    best = int(curves.dice.mean(axis=0).argmax())
+    dice = curves.dice[:, best]
+
     rng = np.random.default_rng(seed)
-    samples = dice[rng.integers(0, len(dice), size=(n_boot, len(dice)))].mean(axis=1)
+    resamples = rng.integers(0, len(dice), size=(n_boot, len(dice)))
+    samples = dice[resamples].mean(axis=1)
     low, high = np.percentile(samples, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+
     return {
         "dice": float(dice.mean()),
         "dice_ci_low": float(low),
         "dice_ci_high": float(high),
-        "dice_patch": float(np.mean([record["dice_patch"] for record in records])),
-        "dice_oracle": float(np.mean([record["dice_oracle"] for record in records])),
+        "dice_oracle": float(curves.dice.max(axis=1).mean()),
+        "threshold": float(THRESHOLDS[best]),
     }
 
 
@@ -383,27 +328,29 @@ def train(args: argparse.Namespace) -> None:
 
     method = Task2Method(cfg)
     start = time.perf_counter()
-    records = leave_one_out(rows, method)
+    curves = leave_one_out(rows, method)
     run_time = time.perf_counter() - start
-    summary = score(records)
+    summary = score(curves)
 
-    # the shipped head sees all n subjects, so it is not any of the models scored above
+    # the shipped model sees all n subjects, so it is not any of the models scored above
     method.fit(rows)
+    method.threshold = summary["threshold"]
     method.save(run_dir / "model")
 
     record = {"name": cfg.name, **summary, "run_time": round(run_time, 1)}
     (run_dir / "metrics.json").write_text(json.dumps(record) + "\n")
-    (run_dir / "per_subject.json").write_text(json.dumps(records, indent=2) + "\n")
+    np.savez(
+        run_dir / "curves.npz",
+        subjects=[row["subject"] for row in rows],
+        thresholds=THRESHOLDS,
+        **curves._asdict(),
+    )
     scores = "  ".join(f"{k}={v:.4f}" for k, v in summary.items())
     logger.info(f"result: {scores}  ({run_time:.0f}s)")
 
 
 def predict(args: argparse.Namespace) -> None:
-    """The challenge contract: modality paths in, a mask nifti written to `--output`.
-
-    `/app/predict.py` in the container is a shim over this, so what scores the submission is the
-    code leave-one-out already ran, not something generated at build time.
-    """
+    """The challenge contract: modality paths in, a mask nifti written to `--output`."""
     overrides = {"device": args.device}
     if args.ckpt_path:
         overrides["ckpt_path"] = args.ckpt_path
